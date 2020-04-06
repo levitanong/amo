@@ -12,7 +12,7 @@
                  (satisfies? amo/AmoApp arg)))
        first))
 
-(defn reactive
+(defn subscribe
   "Mixin. Works in conjunction with [[react]].
   
    ```
@@ -67,8 +67,8 @@
                            (dissoc :amo.subscriber/id)
                            (dissoc :amo.subscriber/read-keys))))}))
 
-
-#_(deftype ReadCursor [app id read-keys meta]
+;; DEPRECATED
+(deftype ReadCursor [app id read-keys meta]
   Object
   (equiv [this other]
     (-equiv this other))
@@ -126,7 +126,8 @@
     (pr-writer {:val (-deref this)} writer opts)
     (-write writer "]")))
 
-#_(defn subscribe-reads
+;; DEPRECATED
+(defn subscribe-reads
   ([app read-keys]
    (subscribe-reads app
                     {:id        (atom nil)
