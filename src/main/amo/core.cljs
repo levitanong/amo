@@ -271,7 +271,7 @@
                  (satisfies? AmoApp arg)))
        first))
 
-(defn subscribe
+(defn rum-subscribe
   "Mixin. Works in conjunction with [[react]].
   
    ```
@@ -325,6 +325,9 @@
                        (-> state
                            (dissoc :amo.subscriber/id)
                            (dissoc :amo.subscriber/read-keys))))}))
+
+;; DEPRECATED
+(def subscribe rum-subscribe)
 
 ;; DEPRECATED
 (deftype ReadCursor [app id read-keys meta]
