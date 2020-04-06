@@ -66,3 +66,72 @@
                        (-> state
                            (dissoc :amo.subscriber/id)
                            (dissoc :amo.subscriber/read-keys))))}))
+
+
+#_(deftype ReadCursor [app id read-keys meta]
+  Object
+  (equiv [this other]
+    (-equiv this other))
+
+  IAtom
+
+  IMeta
+  (-meta [_] meta)
+
+  IEquiv
+  (-equiv [this other]
+    (identical? this other))
+
+  IDeref
+  (-deref [_]
+    (let [{:keys [read-handler read-values]} app
+          values                             @read-values
+          missing-keys                       (set/difference read-keys (set (keys values)))]
+      ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
+      ;; This means that when deref is first called, the subscribers atom is not updated.
+      ;; This also means that primitive-read-keys in the component that uses this atom won't be
+      ;; included in all-read-keys. To compensate, we simply get the difference between
+      ;; the keys of `read-values` and the read-keys we have here.
+      (reduce (fn [props missing-key]
+                (assoc props missing-key (read-handler app missing-key)))
+              (select-keys values read-keys)
+              missing-keys)))
+
+
+  IWatchable
+  (-add-watch [this key callback]
+              ;; key is specific to the component rendering this cursor.
+              ;; Which means, if there are several cursor on the same component
+              ;; they'll all have the same key.
+    (reset! id key)
+    (when (= read-keys #{:all-agencies})
+      (js/console.log "all-agencies watch"))
+    (add-subscriber! app
+                     {:subscriber/id        @id
+                      :subscriber/read-keys read-keys
+                      :subscriber/render    (fn [prev-props props]
+                                              (callback this @id prev-props props))})
+    this)
+
+  (-remove-watch [this key]
+    (remove-subscriber! app @id)
+    this)
+
+  IHash
+  (-hash [this] (goog/getUid this))
+
+  IPrintWithWriter
+  (-pr-writer [this writer opts]
+    (-write writer "#object [amo.core.ReadCursor]")
+    (pr-writer {:val (-deref this)} writer opts)
+    (-write writer "]")))
+
+#_(defn subscribe-reads
+  ([app read-keys]
+   (subscribe-reads app
+                    {:id        (atom nil)
+                     :read-keys read-keys}
+                    {}))
+  ([app {:keys [id read-keys]} {:keys [meta]
+                                :as   options}]
+   (->ReadCursor app id read-keys meta)))
