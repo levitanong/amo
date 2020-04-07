@@ -3,41 +3,13 @@
    Inspired by ideas from om.next, fulcro, rum, and citrus.
    "
   (:require
+   [amo.protocols :as p]
    [clojure.set :as set]
    [clojure.spec.alpha :as s]
    [clojure.core.async :refer [put! >! chan] :as a]
    [rum.core :as rum])
   (:require-macros
    [clojure.core.async :refer [go]]))
-
-;; A path to some value in the app state as if by `get-in`.
-(s/def ::read-path (s/coll-of keyword? :kind vector?))
-
-(s/def ::derived-read-key keyword?)
-
-(s/def ::primitive-read-key
-       (s/or :key keyword?
-             :path ::read-path))
-
-;; Read keys are the dispatch values for the `read-handler` multimethod.
-;; They may either be a keyword or a vector of keywords.
-;; If it's a keyword, it's either a derived read, or a top-level value read.
-;; If it's a vector of keywords, it's a path to a value in state
-;; as if by using `get-in`.
-(s/def ::read-key
-  (s/or :key ::derived-read-key
-        :path ::primitive-read-key))
-
-(s/def ::dependencies
-       (s/coll-of ::read-key :kind set?))
-
-(s/def ::dependency-map
-       (s/map-of ::read-key ::dependencies))
-
-(s/def ::subscriber
-       (s/keys :req [:subscriber/id
-                     :subscriber/read-keys
-                     :subscriber/render]))
 
 (defn resolve-read-key
   "Recursively replace a `read-key` with a set of root root-read-keys.
@@ -98,55 +70,33 @@
           {}
           read-dependencies))
 
-(defprotocol ITransact
-  (transact! [this mutations]
-    "Adds mutations to a global tx-queue, and schedule the execution of that queue
-     based on `schedule-fn`'s discretion."))
-
-(defprotocol ISchedule
-  (schedule! [this f] 
-    "If there is a pending schedule, clear it, then schedule f for execution.
-     Relies on the fact that `schedule-fn` returns an ID, and `release-fn` takes an ID
-     to clear a pending schedule."))
-
-(defprotocol IPublisher
-  (add-subscriber! [this subscriber]
-    "A method to be called by a component to subscribe to changes in state.
-     subscriber must at least have the following keys 
-     `#{:subscriber/id :subscriber/read-keys :subscriber/rerender}`")
-  (remove-subscriber! [this id]
-    "Stop listening to state changes"))
-
-(defprotocol AmoApp
-  (amo-app? [this]))
-
 (defrecord App 
            [state tx-queue subscribers pending-schedule 
             schedule-fn release-fn 
             read-dependencies read-dependents reads
             read-values all-read-keys
             mutation-handler read-handler effect-handlers]
-  AmoApp
-  (amo-app? [this] true)
-  IPublisher
-  (add-subscriber! [this subscriber]
+  p/AmoApp
+  (p/-amo-app? [this] true)
+  p/IPublisher
+  (p/-add-subscriber! [this subscriber]
     (swap! subscribers
            (fn [s]
              (assoc (or s {})
                     (:subscriber/id subscriber)
                     subscriber))))
-  (remove-subscriber! [this id]
+  (p/-remove-subscriber! [this id]
     (swap! subscribers
            (fn [s]
              (dissoc (or s {}) id))))
-  ISchedule
-  (schedule! [this f]
+  p/ISchedule
+  (p/-schedule! [this f]
     (when-let [id @pending-schedule]
       (vreset! pending-schedule nil)
       (release-fn id))
     (vreset! pending-schedule (schedule-fn f)))
-  ITransact
-  (transact! [this mutations]
+  p/ITransact
+  (p/-transact! [this mutations]
              ;; schedule! will only run at most once per animation frame
              ;; this is why we swap into tx-queue so that we can keep track
              ;; of all the transactions that have happened since then.
@@ -162,7 +112,7 @@
              ;; Each time a new transaction is scheduled, any pending schedules
              ;; get cancelled, and the new schedule takes on the responsibility
              ;; of the old one.
-    (schedule! this
+    (p/-schedule! this
                (fn [_]
                  ;; Train is leaving. `txs` is the collection of cargo that made it
                  ;; onto the train.
@@ -226,6 +176,12 @@
                          prev-values @read-values
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
+                         new-values2 (loop [read-to-execute reads-to-execute
+                                            eval-cache      (atom {})]
+                                       (let [cache @eval-cache
+                                             ]
+                                         (if (contains? cache read-to-execute)
+                                           )))
                          new-values (into {}
                                       (map (fn [read-key]
                                              [read-key (read-handler this read-key)]))
@@ -240,11 +196,19 @@
                          (render (select-keys prev-values read-keys)
                                  (select-keys new-read-values read-keys))))))))))
 
+;; PUBLIC API
+(defn transact! [app mutations] (p/-transact! app mutations))
+(defn add-subscriber! [app subscriber] (p/-transact! app subscriber))
+(defn remove-subscriber! [app id] (p/-remove-subscriber! app id))
+(defn amo-app? [app] (p/-amo-app? app))
+
 (defn new-app
   [config]
   (let [new-config          (if-let [read-dependencies (:read-dependencies config)]
                               (assoc config :read-dependents
-                                     (-> read-dependencies
+                                     (-> (if (instance? Atom read-dependencies)
+                                           (deref read-dependencies)
+                                           read-dependencies)
                                          (resolve-dep-map)
                                          (dependencies->dependents)))
                               config)
@@ -267,8 +231,7 @@
   [state]
   (->> state
        :rum/args
-       (filter (fn [arg]
-                 (satisfies? AmoApp arg)))
+       (filter amo-app?)
        first))
 
 (defn rum-subscribe
@@ -314,7 +277,7 @@
                                         (update :rum/args
                                                 (fn [args]
                                                   (reduce (fn [acc arg]
-                                                            (if (satisfies? AmoApp arg)
+                                                            (if (amo-app? arg)
                                                               (into acc [arg props])
                                                               (conj acc arg)))
                                                           []
