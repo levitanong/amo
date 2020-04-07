@@ -176,7 +176,26 @@
                          prev-values @read-values
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
-                         new-values (into {}
+                         dep-map    @read-dependencies
+                         new-values (loop [[read-to-execute & reads-pending-execution] reads-to-execute
+                                           results                                     {}]
+                                      (cond
+                                           ;; nothing more to evaluate.
+                                        (nil? read-to-execute) results
+                                           ;; read-to-execute already had a value. 
+                                           ;; Likely because a dependent already calculated this.
+                                        (contains? results read-to-execute) (recur reads-pending-execution results)
+                                           ;; Not found in results, so need to evaluate.
+                                        :else (let [;; get the deps of this read-to-execute
+                                                    deps          (get dep-map read-to-execute)
+                                                     ;; resolve those deps.
+                                                    resolved-deps (recur deps results)
+                                                    result        (read-handler this read-to-execute resolved-deps)]
+                                                (recur reads-pending-execution 
+                                                       (merge results 
+                                                              resolved-deps
+                                                              {read-to-execute result})))))
+                         #_new-values #_(into {}
                                       (map (fn [read-key]
                                              [read-key (read-handler this read-key)]))
                                       reads-to-execute)
