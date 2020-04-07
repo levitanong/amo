@@ -176,7 +176,9 @@
                          prev-values @read-values
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
-                         dep-map    @read-dependencies
+                         dep-map    (if (instance? Atom read-dependencies)
+                                      @read-dependencies 
+                                      read-dependencies)
                          resolve-reads (fn resolve-reads [[read-to-execute & reads-pending-execution] results]
                                          (cond
                                            ;; nothing more to evaluate.
