@@ -177,24 +177,24 @@
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
                          dep-map    @read-dependencies
-                         new-values (loop [[read-to-execute & reads-pending-execution] reads-to-execute
-                                           results                                     {}]
-                                      (cond
+                         resolve-reads (fn resolve-reads [[read-to-execute & reads-pending-execution] results]
+                                         (cond
                                            ;; nothing more to evaluate.
-                                        (nil? read-to-execute) results
+                                           (nil? read-to-execute) results
                                            ;; read-to-execute already had a value. 
                                            ;; Likely because a dependent already calculated this.
-                                        (contains? results read-to-execute) (recur reads-pending-execution results)
+                                           (contains? results read-to-execute) (resolve-reads reads-pending-execution results)
                                            ;; Not found in results, so need to evaluate.
-                                        :else (let [;; get the deps of this read-to-execute
-                                                    deps          (get dep-map read-to-execute)
+                                           :else (let [;; get the deps of this read-to-execute
+                                                       deps          (get dep-map read-to-execute)
                                                      ;; resolve those deps.
-                                                    resolved-deps (recur deps results)
-                                                    result        (read-handler this read-to-execute resolved-deps)]
-                                                (recur reads-pending-execution 
-                                                       (merge results 
-                                                              resolved-deps
-                                                              {read-to-execute result})))))
+                                                       resolved-deps (recur deps results)
+                                                       result        (read-handler this read-to-execute resolved-deps)]
+                                                   (resolve-reads reads-pending-execution 
+                                                                  (merge results 
+                                                                         resolved-deps
+                                                                         {read-to-execute result})))))
+                         new-values (resolve-reads reads-to-execute {})
                          #_new-values #_(into {}
                                       (map (fn [read-key]
                                              [read-key (read-handler this read-key)]))
