@@ -176,12 +176,6 @@
                          prev-values @read-values
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
-                         new-values2 (loop [read-to-execute reads-to-execute
-                                            eval-cache      (atom {})]
-                                       (let [cache @eval-cache
-                                             ]
-                                         (if (contains? cache read-to-execute)
-                                           )))
                          new-values (into {}
                                       (map (fn [read-key]
                                              [read-key (read-handler this read-key)]))
