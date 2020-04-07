@@ -188,7 +188,7 @@
                                            :else (let [;; get the deps of this read-to-execute
                                                        deps          (get dep-map read-to-execute)
                                                      ;; resolve those deps.
-                                                       resolved-deps (recur deps results)
+                                                       resolved-deps (resolve-reads deps results)
                                                        result        (read-handler this read-to-execute resolved-deps)]
                                                    (resolve-reads reads-pending-execution 
                                                                   (merge results 
