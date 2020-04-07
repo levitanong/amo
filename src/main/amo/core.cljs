@@ -192,9 +192,9 @@
 
 ;; PUBLIC API
 (defn transact! [app mutations] (p/-transact! app mutations))
-(defn add-subscriber! [app subscriber] (p/-transact! app subscriber))
+(defn add-subscriber! [app subscriber] (p/-add-subscriber! app subscriber))
 (defn remove-subscriber! [app id] (p/-remove-subscriber! app id))
-(defn amo-app? [app] (p/-amo-app? app))
+(defn amo-app? [app] (satisfies? p/AmoApp app))
 
 (defn new-app
   [config]
