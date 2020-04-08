@@ -273,16 +273,16 @@
                      (let [{:rum/keys [react-component]} state
                            amo-app                       (rum-state->amo-app state)]
                        (add-subscriber! amo-app
-                                            {:subscriber/id        id
-                                             :subscriber/read-keys read-keys
-                                             :subscriber/render    (fn [_prev-props _props]
-                                                                     (rum/request-render react-component))}))
+                                        {:subscriber/id        id
+                                         :subscriber/read-keys read-keys
+                                         :subscriber/render    (fn [_prev-props _props]
+                                                                 (rum/request-render react-component))}))
                      (assoc state
                             :amo.subscriber/id id
                             :amo.subscriber/read-keys read-keys))
      :wrap-render  (fn [render-fn]
-                     (fn [state]
-                       (let [app                                      (rum-state->amo-app state)
+                     (fn [rum-state]
+                       (let [app                                      (rum-state->amo-app rum-state)
                              {:keys [read-handler read-values state]} app
                              values                                   @read-values
                              state-map                                @state
@@ -296,7 +296,7 @@
                                                                                 (assoc props missing-key (read-handler state-map missing-key)))
                                                                               (select-keys values read-keys)
                                                                               missing-keys)]
-                         (render-fn (-> state
+                         (render-fn (-> rum-state
                                         (update :rum/args
                                                 (fn [args]
                                                   (reduce (fn [acc arg]
