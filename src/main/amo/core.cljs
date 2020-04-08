@@ -148,7 +148,7 @@
                          ;; all-read-keys represents all the derived keys
                          ;; Taken from all the dispatch values of the multimethod `read-handler`,
                          ;; sans the `:default` dispatch.
-
+                         
                          ;; Subscribers also directly specify the set of read-keys
                          ;; they care about. What we want from this is the root read-keys
                          ;; and not derived read-keys. Good thing we use a set, so deduping is free.
@@ -171,14 +171,16 @@
                          ;; to the result of exeuting the `read-handler`.
                          ;; read-values will be used by subscribers to access the data they need.
                          ;; This way, we avoid unnecessary repeat executions of read-handler.
-
+                         
                          ;; We deref it now, to get the previous values.
                          prev-values @read-values
-                         ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
-                         ;; that can be used to reset! `read-values`.
+                         ;; Support both atom and map for read-dependencies
                          dep-map    (if (instance? Atom read-dependencies)
                                       @read-dependencies 
                                       read-dependencies)
+                         ;; deref current state since state mutations are done
+                         state-map @state
+                         ;; Recursively resolve reads and pass dependencies of read-keys into read-handler
                          resolve-reads (fn resolve-reads [[read-to-execute & reads-pending-execution] results]
                                          (cond
                                            ;; nothing more to evaluate.
@@ -191,16 +193,21 @@
                                                        deps          (get dep-map read-to-execute)
                                                      ;; resolve those deps.
                                                        resolved-deps (resolve-reads deps results)
-                                                       result        (read-handler this read-to-execute resolved-deps)]
+                                                       result        (read-handler state-map read-to-execute
+                                                                                   (select-keys resolved-deps deps))]
                                                    (resolve-reads reads-pending-execution 
+                                                                  ;; We want the resolved deps from the dependencies
+                                                                  ;; to be included in the results we pass on to recursion
                                                                   (merge results 
                                                                          resolved-deps
                                                                          {read-to-execute result})))))
+                         ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
+                         ;; that can be used to reset! `read-values`.
                          new-values (resolve-reads reads-to-execute {})
-                         #_new-values #_(into {}
-                                      (map (fn [read-key]
-                                             [read-key (read-handler this read-key)]))
-                                      reads-to-execute)
+                         #__ #_(time (into {}
+                                           (map (fn [read-key]
+                                                  [read-key (read-handler state-map read-key)]))
+                                           reads-to-execute))
                          ;; We merge prev-values and new-values to get the complete map.
                          new-read-values (merge prev-values new-values)]
                      ;; reset! read-values with this merger.
@@ -275,19 +282,20 @@
                             :amo.subscriber/read-keys read-keys))
      :wrap-render  (fn [render-fn]
                      (fn [state]
-                       (let [app                                (rum-state->amo-app state)
-                             {:keys [read-handler read-values]} app
-                             values                             @read-values
-                             missing-keys                       (set/difference read-keys (set (keys values)))
+                       (let [app                                      (rum-state->amo-app state)
+                             {:keys [read-handler read-values state]} app
+                             values                                   @read-values
+                             state-map                                @state
+                             missing-keys                             (set/difference read-keys (set (keys values)))
                              ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
                              ;; This means that when deref is first called, the subscribers atom is not updated.
                              ;; This also means that primitive-read-keys in the component that uses this atom won't be
                              ;; included in all-read-keys. To compensate, we simply get the difference between
                              ;; the keys of `read-values` and the read-keys we have here.
-                             props                              (reduce (fn [props missing-key]
-                                                                          (assoc props missing-key (read-handler app missing-key)))
-                                                                        (select-keys values read-keys)
-                                                                        missing-keys)]
+                             props                                    (reduce (fn [props missing-key]
+                                                                                (assoc props missing-key (read-handler state-map missing-key)))
+                                                                              (select-keys values read-keys)
+                                                                              missing-keys)]
                          (render-fn (-> state
                                         (update :rum/args
                                                 (fn [args]
@@ -324,16 +332,17 @@
 
   IDeref
   (-deref [_]
-    (let [{:keys [read-handler read-values]} app
-          values                             @read-values
-          missing-keys                       (set/difference read-keys (set (keys values)))]
+    (let [{:keys [read-handler read-values state]} app
+          values                                   @read-values
+          state-map                                @state
+          missing-keys                             (set/difference read-keys (set (keys values)))]
       ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
       ;; This means that when deref is first called, the subscribers atom is not updated.
       ;; This also means that primitive-read-keys in the component that uses this atom won't be
       ;; included in all-read-keys. To compensate, we simply get the difference between
       ;; the keys of `read-values` and the read-keys we have here.
       (reduce (fn [props missing-key]
-                (assoc props missing-key (read-handler app missing-key)))
+                (assoc props missing-key (read-handler state-map missing-key {})))
               (select-keys values read-keys)
               missing-keys)))
 
