@@ -243,7 +243,7 @@
                                                                          {read-to-execute result})))))
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
-                         new-values (time-label "old style" (resolve-reads reads-to-execute {}))
+                         new-values (resolve-reads reads-to-execute {})
                          ;; We merge prev-values and new-values to get the complete map.
                          new-read-values (merge prev-values new-values)]
                      ;; reset! read-values with this merger.
