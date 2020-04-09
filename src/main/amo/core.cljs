@@ -183,7 +183,7 @@
                          state-map @state
                          ;; Recursively resolve reads and pass dependencies of read-keys into read-handler
                          _ (time-label "tail recursion"
-                                       (loop [[read-to-execute & reads-pending-execution :as reads-to-execute] reads-to-execute
+                                       (loop [[read-to-execute & remaining-reads :as reads-to-execute] reads-to-execute
                                               results                                                          {}]
                                          (js/console.log "debug" reads-to-execute results)
                                          (cond
@@ -191,7 +191,7 @@
                                            (nil? read-to-execute) results
                                      ;; read-to-execute already had a value. 
                                      ;; Likely because a dependent already calculated this.
-                                           (contains? results read-to-execute) (recur reads-pending-execution results)
+                                           (contains? results read-to-execute) (recur (set remaining-reads) results)
                                      ;; Not found in results, so need to evaluate.
                                            :else (let [;; get the deps of this read-to-execute
                                                        deps            (get dep-map read-to-execute)
@@ -206,11 +206,11 @@
                                                ;; i.e. have entries in `results`.
                                                ;; Can now evaluate a new result using `read-handler`,
                                                ;; passing the deps subset of results.
-                                                     (let [new-result (read-handler state-map reads-to-execute
+                                                     (let [new-result (read-handler state-map read-to-execute
                                                                                     (select-keys results deps))]
                                                  ;; Look at all the other read keys.
                                                  ;; Add new result to `results`.
-                                                       (recur reads-pending-execution
+                                                       (recur (set remaining-reads)
                                                               (merge results
                                                                      {read-to-execute new-result}))))))))
                          resolve-reads (fn resolve-reads [[read-to-execute & reads-pending-execution] results]
