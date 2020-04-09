@@ -197,13 +197,12 @@
                                                        deps            (get dep-map read-to-execute)
                                                  ;; Finding deps that don't have an entry in results
                                                        unresolved-deps (set/difference deps (set (keys results)))]
+                                                   (js/console.log "asdfqwer" deps (keys results) unresolved-deps)
                                                    (if (seq unresolved-deps)
                                                ;; merge unresolved-deps with reads-to-execute because 
                                                ;; we want `read-to-execute` in the queue again.
                                                ;; unresolved-deps should be evaluated first.
-                                                     (do
-                                                       (js/console.log "unresolved-deps" unresolved-deps)
-                                                       (recur (into unresolved-deps reads-to-execute) results))
+                                                     (recur (into unresolved-deps reads-to-execute) results)
                                                ;; All deps have already have been resolve
                                                ;; i.e. have entries in `results`.
                                                ;; Can now evaluate a new result using `read-handler`,
