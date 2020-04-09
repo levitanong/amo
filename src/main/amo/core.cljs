@@ -9,7 +9,8 @@
    [clojure.core.async :refer [put! >! chan] :as a]
    [rum.core :as rum])
   (:require-macros
-   [clojure.core.async :refer [go]]))
+   [clojure.core.async :refer [go]]
+   [amo.util :refer [time-label]]))
 
 (defn resolve-read-key
   "Recursively replace a `read-key` with a set of root root-read-keys.
@@ -181,6 +182,36 @@
                          ;; deref current state since state mutations are done
                          state-map @state
                          ;; Recursively resolve reads and pass dependencies of read-keys into read-handler
+                         _ (time-label "tail recursion"
+                                       (loop [[read-to-execute & reads-pending-execution :as reads-to-execute] reads-to-execute
+                                              results                                                          {}]
+                                         (cond
+                                     ;; nothing more to evaluate.
+                                           (nil? read-to-execute) results
+                                     ;; read-to-execute already had a value. 
+                                     ;; Likely because a dependent already calculated this.
+                                           (contains? results read-to-execute) (recur reads-pending-execution results)
+                                     ;; Not found in results, so need to evaluate.
+                                           :else (let [;; get the deps of this read-to-execute
+                                                       deps            (get dep-map read-to-execute)
+                                                 ;; Finding deps that don't have an entry in results
+                                                       unresolved-deps (set/difference deps (set (keys results)))]
+                                                   (if (seq unresolved-deps)
+                                               ;; merge unresolved-deps with reads-to-execute because 
+                                               ;; we want `read-to-execute` in the queue again.
+                                               ;; unresolved-deps should be evaluated first.
+                                                     (recur (into unresolved-deps reads-to-execute) results)
+                                               ;; All deps have already have been resolve
+                                               ;; i.e. have entries in `results`.
+                                               ;; Can now evaluate a new result using `read-handler`,
+                                               ;; passing the deps subset of results.
+                                                     (let [new-result (read-handler state-map reads-to-execute
+                                                                                    (select-keys results deps))]
+                                                 ;; Look at all the other read keys.
+                                                 ;; Add new result to `results`.
+                                                       (recur reads-pending-execution
+                                                              (merge results
+                                                                     {read-to-execute new-result}))))))))
                          resolve-reads (fn resolve-reads [[read-to-execute & reads-pending-execution] results]
                                          (cond
                                            ;; nothing more to evaluate.
@@ -203,7 +234,7 @@
                                                                          {read-to-execute result})))))
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
-                         new-values (resolve-reads reads-to-execute {})
+                         new-values (time-label "old style" (resolve-reads reads-to-execute {}))
                          #__ #_(time (into {}
                                            (map (fn [read-key]
                                                   [read-key (read-handler state-map read-key)]))
