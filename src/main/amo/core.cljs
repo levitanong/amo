@@ -71,6 +71,45 @@
           {}
           read-dependencies))
 
+;; For record purposes
+;; Still slower than current implementation, but nice to see anyway.
+#_(time-label
+   "tail recursion"
+   (loop [[read-to-execute & remaining-reads :as reads-to-execute] (vec reads-to-execute)
+          results                                                  {}]
+     (cond
+       ;; nothing more to evaluate.
+       (nil? read-to-execute) results
+       ;; read-to-execute already had a value.
+       ;; ;; Likely because a dependent already calculated this.
+       (contains? results read-to-execute) (recur remaining-reads results)
+       ;; Not found in results, so need to evaluate.
+       :else (let [;; get the deps of this read-to-execute
+                   deps            (get dep-map read-to-execute)
+                   ;; Finding deps that don't have an entry in results
+                   ;; ;; We use vector operations instead of set
+                   ;; ;; because we need `into` to be predictable and ordered.
+                   unresolved-deps (filterv (fn [dep]
+                                              (not
+                                               (contains? results dep)))
+                                            deps)]
+               (if (seq unresolved-deps)
+                 ;; merge unresolved-deps with reads-to-execute because 
+                 ;; we want `read-to-execute` in the queue again.
+                 ;; unresolved-deps should be evaluated first.
+                 (recur (into unresolved-deps reads-to-execute) results)
+                 ;; All deps have already have been resolve
+                 ;; i.e. have entries in `results`.
+                 ;; Can now evaluate a new result using `read-handler`,
+                 ;; passing the deps subset of results.
+                 (let [new-result (read-handler state-map read-to-execute
+                                                (select-keys results deps))]
+                   ;; Look at all the other read keys.
+                   ;; ;; Add new result to `results`.
+                   (recur remaining-reads
+                          (merge results
+                                 {read-to-execute new-result}))))))))
+
 (defrecord App 
            [state tx-queue subscribers pending-schedule 
             schedule-fn release-fn 
@@ -182,45 +221,6 @@
                          ;; deref current state since state mutations are done
                          state-map @state
                          ;; Recursively resolve reads and pass dependencies of read-keys into read-handler
-                         deps-resolved? (fn [read-key]
-                                          (let [deps (get dep-map read-key)
-                                                unresolved-deps (set/difference deps ())]))
-                         _ (time-label "tail recursion"
-                                       (loop [[read-to-execute & remaining-reads :as reads-to-execute] (vec reads-to-execute)
-                                              results                                                  {}]
-                                         (js/console.log "debug" reads-to-execute results)
-                                         (cond
-                                     ;; nothing more to evaluate.
-                                           (nil? read-to-execute) results
-                                     ;; read-to-execute already had a value. 
-                                     ;; Likely because a dependent already calculated this.
-                                           (contains? results read-to-execute) (recur remaining-reads results)
-                                     ;; Not found in results, so need to evaluate.
-                                           :else (let [;; get the deps of this read-to-execute
-                                                       deps            (get dep-map read-to-execute)
-                                                 ;; Finding deps that don't have an entry in results
-                                                       ;; We use vector operations instead of set
-                                                       ;; because we need `into` to be predictable and ordered.
-                                                       unresolved-deps (filterv (fn [dep]
-                                                                                  (not
-                                                                                   (contains? results dep)))
-                                                                                deps)]
-                                                   (if (seq unresolved-deps)
-                                               ;; merge unresolved-deps with reads-to-execute because 
-                                               ;; we want `read-to-execute` in the queue again.
-                                               ;; unresolved-deps should be evaluated first.
-                                                     (recur (into unresolved-deps reads-to-execute) results)
-                                               ;; All deps have already have been resolve
-                                               ;; i.e. have entries in `results`.
-                                               ;; Can now evaluate a new result using `read-handler`,
-                                               ;; passing the deps subset of results.
-                                                     (let [new-result (read-handler state-map read-to-execute
-                                                                                    (select-keys results deps))]
-                                                 ;; Look at all the other read keys.
-                                                 ;; Add new result to `results`.
-                                                       (recur remaining-reads
-                                                              (merge results
-                                                                     {read-to-execute new-result}))))))))
                          resolve-reads (fn resolve-reads [[read-to-execute & reads-pending-execution] results]
                                          (cond
                                            ;; nothing more to evaluate.
@@ -244,10 +244,6 @@
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
                          new-values (time-label "old style" (resolve-reads reads-to-execute {}))
-                         #__ #_(time (into {}
-                                           (map (fn [read-key]
-                                                  [read-key (read-handler state-map read-key)]))
-                                           reads-to-execute))
                          ;; We merge prev-values and new-values to get the complete map.
                          new-read-values (merge prev-values new-values)]
                      ;; reset! read-values with this merger.
