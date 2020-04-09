@@ -188,6 +188,7 @@
                          _ (time-label "tail recursion"
                                        (loop [[read-to-execute & remaining-reads :as reads-to-execute] (vec reads-to-execute)
                                               results                                                  {}]
+                                         (js/console.log "debug" reads-to-execute results)
                                          (cond
                                      ;; nothing more to evaluate.
                                            (nil? read-to-execute) results
