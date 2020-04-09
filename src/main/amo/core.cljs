@@ -201,7 +201,9 @@
                                                ;; merge unresolved-deps with reads-to-execute because 
                                                ;; we want `read-to-execute` in the queue again.
                                                ;; unresolved-deps should be evaluated first.
-                                                     (recur (into unresolved-deps reads-to-execute) results)
+                                                     (do
+                                                       (js/console.log "unresolved-deps" unresolved-deps)
+                                                       (recur (into unresolved-deps reads-to-execute) results))
                                                ;; All deps have already have been resolve
                                                ;; i.e. have entries in `results`.
                                                ;; Can now evaluate a new result using `read-handler`,
