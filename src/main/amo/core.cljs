@@ -182,6 +182,9 @@
                          ;; deref current state since state mutations are done
                          state-map @state
                          ;; Recursively resolve reads and pass dependencies of read-keys into read-handler
+                         deps-resolved? (fn [read-key]
+                                          (let [deps (get dep-map read-key)
+                                                unresolved-deps (set/difference deps ())]))
                          _ (time-label "tail recursion"
                                        (loop [[read-to-execute & remaining-reads :as reads-to-execute] (vec reads-to-execute)
                                               results                                                  {}]
@@ -195,8 +198,12 @@
                                            :else (let [;; get the deps of this read-to-execute
                                                        deps            (get dep-map read-to-execute)
                                                  ;; Finding deps that don't have an entry in results
-                                                       ;; Turn it into a vector because we need `into` to be predictable and ordered.
-                                                       unresolved-deps (vec (set/difference deps (set (keys results))))]
+                                                       ;; We use vector operations instead of set
+                                                       ;; because we need `into` to be predictable and ordered.
+                                                       unresolved-deps (filterv (fn [dep]
+                                                                                  (not
+                                                                                   (contains? results dep)))
+                                                                                deps)]
                                                    (if (seq unresolved-deps)
                                                ;; merge unresolved-deps with reads-to-execute because 
                                                ;; we want `read-to-execute` in the queue again.
