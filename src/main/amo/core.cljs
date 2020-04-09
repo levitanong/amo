@@ -185,6 +185,7 @@
                          _ (time-label "tail recursion"
                                        (loop [[read-to-execute & reads-pending-execution :as reads-to-execute] reads-to-execute
                                               results                                                          {}]
+                                         (js/console.log "debug" reads-to-execute results)
                                          (cond
                                      ;; nothing more to evaluate.
                                            (nil? read-to-execute) results
