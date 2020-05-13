@@ -20,11 +20,11 @@
        (s/map-of keyword? (s/coll-of keyword? :kind set?)))
 
 (s/def ::read-handler
-       (s/and fn? #(instance? MultiFn %)))
+       (s/and ifn? #(instance? MultiFn %)))
 
-(s/def ::mutation-handler fn?)
+(s/def ::mutation-handler ifn?)
 
-(s/def ::effect-handler fn?)
+(s/def ::effect-handler ifn?)
 
 (s/def ::effect-handlers
        (s/map-of keyword? ::effect-handler))
