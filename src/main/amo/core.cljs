@@ -12,6 +12,32 @@
    [clojure.core.async :refer [go]]
    [amo.util :refer [time-label]]))
 
+(defn atom? [a] (instance? Atom a))
+
+(s/def ::state atom?)
+
+(s/def ::read-dependencies
+       (s/map-of keyword? (s/coll-of keyword? :kind set?)))
+
+(s/def ::read-handler
+       (s/and fn? #(instance? MultiFn %)))
+
+(s/def ::mutation-handler fn?)
+
+(s/def ::effect-handler fn?)
+
+(s/def ::effect-handlers
+       (s/map-of keyword? ::effect-handler))
+
+(s/def ::app-config
+  (s/keys :req-un 
+          [::state
+           ::read-handler
+           ::mutation-handler]
+          :opt-un
+          [::read-dependencies
+           ::effect-handlers]))
+
 (defn resolve-read-key
   "Recursively replace a `read-key` with a set of root root-read-keys.
    By default, also includes the derived-read-key (a key that has an entry in `dep-map`)
@@ -201,7 +227,26 @@
                                             all-reads
                                             ;; Otherwise, flesh out the pending rereads with `read-dependents`
                                             ;; Which is derived from the dependency map of read-keys.
-                                            (reduce (fn [acc read-to-update]
+                                            (loop [unresolved-pending-rereads pending-rereads
+                                                   resolved-pending-rereads   []]
+                                              (let [[read-to-update & next-pending] unresolved-pending-rereads
+                                                    dependents                      (seq (get read-dependents read-to-update))]
+                                                (cond
+                                                  ;; No more reads to update. return resolved list.
+                                                  (nil? read-to-update) resolved-pending-rereads
+                                                  ;; dependents exist, we don't know if they themselves have dependents.
+                                                  ;; add to list of unresolved pending rereads
+                                                  dependents (recur (into unresolved-pending-rereads dependents)
+                                                                    resolved-pending-rereads)
+                                                  ;; dependents don't exist. we now know read-to-update is "irreducible"
+                                                  ;; add this to list of resolved pending rereads.
+                                                  :else (recur next-pending
+                                                               (conj resolved-pending-rereads read-to-update)))))
+                                            #_(reduce (fn [acc read-to-update]
+                                                      (loop [r read-to-update]
+                                                        (let [deps (seq (get read-dependents read-to-update))]
+                                                          (if deps
+                                                            (recur deps))))
                                                       (if-let [dependents (seq (get read-dependents read-to-update))]
                                                         (into acc dependents)
                                                         acc))
@@ -262,6 +307,8 @@
 
 (defn new-app
   [config]
+  (when-not (s/valid? ::app-config config)
+    (throw (ex-info "Invalid app config" (s/explain-data ::app-config config))))
   (let [new-config          (if-let [read-dependencies (:read-dependencies config)]
                               (assoc config :read-dependents
                                      (-> (if (instance? Atom read-dependencies)
