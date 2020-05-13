@@ -45,6 +45,3 @@
 ;; (s/def ::state atom?)
 
 ;; (s/def ::state )
-
-;; (s/def ::app
-;;        (s/keys :req []))

@@ -51,10 +51,10 @@
     ;; Found, recursively call `resolve-read-key` on the
     ;; dependencies to resolve them. Then collect into a set.
     (into (if include-derived? #{read-key} #{})
-          (map (fn [read-key-dep]
-                 ;; returns a set.
-                 (resolve-read-key dep-map read-key-dep 
-                                   :include-derived? include-derived?)))
+          (mapcat (fn [read-key-dep]
+                    ;; returns a set.
+                    (resolve-read-key dep-map read-key-dep
+                                      :include-derived? include-derived?)))
           (get dep-map read-key))))
 
 (defn resolve-dep-map
@@ -82,10 +82,11 @@
         dep-map))
 
 (defn dependencies->dependents
-  "Converts the a mapping from dependent to dependencies
+  "Converts a mapping from dependent to dependencies
   into a mapping from dependency to dependents."
   [read-dependencies]
   (reduce (fn [acc [dependent dependencies]]
+            ;; `dependencies` is a set
             (reduce (fn [acc2 dependency]
                       ;; Associate the dependents to the dependency
                       (update acc2 dependency
@@ -307,7 +308,7 @@
     (throw (ex-info "Invalid app config" (s/explain-data ::app-config config))))
   (let [new-config          (if-let [read-dependencies (:read-dependencies config)]
                               (assoc config :read-dependents
-                                     (-> (if (instance? Atom read-dependencies)
+                                     (-> (if (atom? read-dependencies)
                                            (deref read-dependencies)
                                            read-dependencies)
                                          (resolve-dep-map)
