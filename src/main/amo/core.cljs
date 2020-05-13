@@ -227,26 +227,22 @@
                                             all-reads
                                             ;; Otherwise, flesh out the pending rereads with `read-dependents`
                                             ;; Which is derived from the dependency map of read-keys.
-                                            (loop [unresolved-pending-rereads pending-rereads
-                                                   resolved-pending-rereads   []]
-                                              (let [[read-to-update & next-pending] unresolved-pending-rereads
+                                            #_(loop [pending-rereads             pending-rereads
+                                                   independent-pending-rereads #{}]
+                                              (let [[read-to-update & next-pending] pending-rereads
                                                     dependents                      (seq (get read-dependents read-to-update))]
                                                 (cond
                                                   ;; No more reads to update. return resolved list.
-                                                  (nil? read-to-update) resolved-pending-rereads
+                                                  (nil? read-to-update) independent-pending-rereads
                                                   ;; dependents exist, we don't know if they themselves have dependents.
                                                   ;; add to list of unresolved pending rereads
-                                                  dependents (recur (into unresolved-pending-rereads dependents)
-                                                                    resolved-pending-rereads)
+                                                  dependents (recur (into pending-rereads dependents)
+                                                                    independent-pending-rereads)
                                                   ;; dependents don't exist. we now know read-to-update is "irreducible"
                                                   ;; add this to list of resolved pending rereads.
                                                   :else (recur next-pending
-                                                               (conj resolved-pending-rereads read-to-update)))))
-                                            #_(reduce (fn [acc read-to-update]
-                                                      (loop [r read-to-update]
-                                                        (let [deps (seq (get read-dependents read-to-update))]
-                                                          (if deps
-                                                            (recur deps))))
+                                                               (conj independent-pending-rereads read-to-update)))))
+                                            (reduce (fn [acc read-to-update]
                                                       (if-let [dependents (seq (get read-dependents read-to-update))]
                                                         (into acc dependents)
                                                         acc))
