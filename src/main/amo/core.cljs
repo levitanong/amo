@@ -199,7 +199,7 @@
                    (swap! state
                           (fn [old-state]
                             (reduce (fn [st [tx-key tx-params]]
-                                      (let [effect-map (mutation-handler tx-key tx-params st)
+                                      (let [effect-map (mutation-handler st tx-key tx-params)
                                             new-state  (:state effect-map)
                                             tx-refresh (:refresh effect-map)
                                             effects    (-> effect-map (dissoc :state) (dissoc :refresh))]
