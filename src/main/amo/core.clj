@@ -17,7 +17,7 @@
          :args-list vector?
          :body (s/* any?)))
 
-(s/def ::defmutate
+(s/def ::defmutation
   (s/cat :dispatch-key keyword?
          :args-list vector?
          :body (s/* any?)))
@@ -38,13 +38,13 @@
          ~args-list
          ~@body))))
 
-(defmacro defmutate
+(defmacro defmutation
   [& args]
-  (when-not (s/valid? ::defmutate args)
-    (throw (ex-info "Invalid args for defmutate"
+  (when-not (s/valid? ::defmutation args)
+    (throw (ex-info "Invalid args for defmutation"
                     {:spec-error
-                     (s/explain-data ::defmutate args)})))
-  (let [{:keys [dispatch-key args-list body]} (s/conform ::defmutate args)
+                     (s/explain-data ::defmutation args)})))
+  (let [{:keys [dispatch-key args-list body]} (s/conform ::defmutation args)
         fq-mutate-sym 'amo.core/mutate-handler]
     `(defmethod ~fq-mutate-sym ~dispatch-key
        ~args-list
