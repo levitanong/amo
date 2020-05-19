@@ -9,6 +9,7 @@
    [clojure.core.async :refer [put! >! chan] :as a]
    [rum.core :as rum])
   (:require-macros
+   [amo.core]
    [clojure.core.async :refer [go]]
    [amo.util :refer [time-label]]))
 
@@ -17,10 +18,12 @@
 (s/def ::state atom?)
 
 (s/def ::read-dependencies
-       (s/map-of keyword? (s/coll-of keyword? :kind set?)))
+  (or :atom atom?
+      :normal
+      (s/map-of keyword? (s/coll-of keyword? :kind set?))))
 
 (s/def ::read-handler
-       (s/and ifn? #(instance? MultiFn %)))
+  (s/and ifn? #(instance? MultiFn %)))
 
 (s/def ::mutation-handler ifn?)
 
@@ -137,6 +140,10 @@
                           (merge results
                                  {read-to-execute new-result}))))))))
 
+(defmulti mutation-handler (fn [_ event _] event))
+(defmulti read-handler (fn [_ read-key _] read-key))
+(def colocated-read-dependencies (atom {}))
+
 (defrecord App 
            [state tx-queue subscribers pending-schedule 
             schedule-fn release-fn 
@@ -228,21 +235,6 @@
                                             all-reads
                                             ;; Otherwise, flesh out the pending rereads with `read-dependents`
                                             ;; Which is derived from the dependency map of read-keys.
-                                            #_(loop [pending-rereads             pending-rereads
-                                                   independent-pending-rereads #{}]
-                                              (let [[read-to-update & next-pending] pending-rereads
-                                                    dependents                      (seq (get read-dependents read-to-update))]
-                                                (cond
-                                                  ;; No more reads to update. return resolved list.
-                                                  (nil? read-to-update) independent-pending-rereads
-                                                  ;; dependents exist, we don't know if they themselves have dependents.
-                                                  ;; add to list of unresolved pending rereads
-                                                  dependents (recur (into pending-rereads dependents)
-                                                                    independent-pending-rereads)
-                                                  ;; dependents don't exist. we now know read-to-update is "irreducible"
-                                                  ;; add this to list of resolved pending rereads.
-                                                  :else (recur next-pending
-                                                               (conj independent-pending-rereads read-to-update)))))
                                             (reduce (fn [acc read-to-update]
                                                       (if-let [dependents (seq (get read-dependents read-to-update))]
                                                         (into acc dependents)
@@ -306,27 +298,23 @@
   [config]
   (when-not (s/valid? ::app-config config)
     (throw (ex-info "Invalid app config" (s/explain-data ::app-config config))))
-  (let [new-config          (if-let [read-dependencies (:read-dependencies config)]
-                              (assoc config :read-dependents
-                                     (-> (if (atom? read-dependencies)
-                                           (deref read-dependencies)
-                                           read-dependencies)
-                                         (resolve-dep-map)
-                                         (dependencies->dependents)))
-                              config)
-        all-read-keys       (->> (:read-handler config)
-                                 methods
-                                 keys
-                                 (remove (partial = :default)))
-        app                 (map->App (-> new-config
-                                          (merge {:tx-queue         (atom [])
-                                                  :pending-schedule (volatile! nil)
-                                                  :subscribers      (atom {})
-                                                  :schedule-fn      js/requestAnimationFrame
-                                                  :release-fn       js/cancelAnimationFrame
-                                                  :all-read-keys    all-read-keys
-                                                  :read-values      (atom {})})))]
-    app))
+  (let [all-read-keys (->> read-handler
+                           methods
+                           keys
+                           (remove (partial = :default)))
+        new-config    (merge config
+                             {:tx-queue         (atom [])
+                              :pending-schedule (volatile! nil)
+                              :subscribers      (atom {})
+                              :schedule-fn      js/requestAnimationFrame
+                              :release-fn       js/cancelAnimationFrame
+                              :all-read-keys    all-read-keys
+                              :read-values      (atom {})
+                              :read-handler     read-handler
+                              :read-dependents  (-> @colocated-read-dependencies
+                                                    (resolve-dep-map)
+                                                    (dependencies->dependents))})]
+    (map->App new-config)))
 
 
 (defn rum-state->amo-app
