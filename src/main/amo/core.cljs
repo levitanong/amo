@@ -18,9 +18,7 @@
 (s/def ::state atom?)
 
 (s/def ::read-dependencies
-  (or :atom atom?
-      :normal
-      (s/map-of keyword? (s/coll-of keyword? :kind set?))))
+  (s/map-of keyword? (s/coll-of keyword? :kind set?)))
 
 (s/def ::read-handler
   (s/and ifn? #(instance? MultiFn %)))
@@ -298,23 +296,25 @@
   [config]
   (when-not (s/valid? ::app-config config)
     (throw (ex-info "Invalid app config" (s/explain-data ::app-config config))))
-  (let [all-read-keys (->> read-handler
-                           methods
-                           keys
-                           (remove (partial = :default)))
-        new-config    (merge config
-                             {:tx-queue         (atom [])
-                              :pending-schedule (volatile! nil)
-                              :subscribers      (atom {})
-                              :schedule-fn      js/requestAnimationFrame
-                              :release-fn       js/cancelAnimationFrame
-                              :all-read-keys    all-read-keys
-                              :mutation-handler mutation-handler
-                              :read-values      (atom {})
-                              :read-handler     read-handler
-                              :read-dependents  (-> @colocated-read-dependencies
-                                                    (resolve-dep-map)
-                                                    (dependencies->dependents))})]
+  (let [all-read-keys     (->> read-handler
+                               methods
+                               keys
+                               (remove (partial = :default)))
+        read-dependencies @colocated-read-dependencies
+        new-config        (merge config
+                                 {:tx-queue          (atom [])
+                                  :pending-schedule  (volatile! nil)
+                                  :subscribers       (atom {})
+                                  :schedule-fn       js/requestAnimationFrame
+                                  :release-fn        js/cancelAnimationFrame
+                                  :all-read-keys     all-read-keys
+                                  :mutation-handler  mutation-handler
+                                  :read-values       (atom {})
+                                  :read-handler      read-handler
+                                  :read-dependencies read-dependencies
+                                  :read-dependents   (-> read-dependencies
+                                                         (resolve-dep-map)
+                                                         (dependencies->dependents))})]
     (map->App new-config)))
 
 
