@@ -45,7 +45,7 @@
                     {:spec-error
                      (s/explain-data ::defmutation args)})))
   (let [{:keys [dispatch-key args-list body]} (s/conform ::defmutation args)
-        fq-mutate-sym 'amo.core/mutate-handler]
+        fq-mutate-sym 'amo.core/mutation-handler]
     `(defmethod ~fq-mutate-sym ~dispatch-key
        ~args-list
        ~@body)))
