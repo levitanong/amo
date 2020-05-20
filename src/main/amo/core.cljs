@@ -309,6 +309,7 @@
                               :schedule-fn      js/requestAnimationFrame
                               :release-fn       js/cancelAnimationFrame
                               :all-read-keys    all-read-keys
+                              :mutation-handler mutation-handler
                               :read-values      (atom {})
                               :read-handler     read-handler
                               :read-dependents  (-> @colocated-read-dependencies
