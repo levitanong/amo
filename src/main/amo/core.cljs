@@ -32,12 +32,9 @@
 
 (s/def ::app-config
   (s/keys :req-un 
-          [::state
-           ::read-handler
-           ::mutation-handler]
+          [::state]
           :opt-un
-          [::read-dependencies
-           ::effect-handlers]))
+          [::effect-handlers]))
 
 (defn resolve-read-key
   "Recursively replace a `read-key` with a set of root root-read-keys.
