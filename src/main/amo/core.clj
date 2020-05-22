@@ -33,7 +33,11 @@
         fq-read-sym 'amo.core/read-handler]
     `(do
        ;; Register dependencies of this read
-       (swap! amo.core/colocated-read-dependencies assoc ~dispatch-key ~deps)
+       (swap! amo.core/colocated-read-dependencies assoc ~dispatch-key 
+              ~(into (empty deps)
+                     ;; Have to do this because conform turns s/or into tuples.
+                     (map second)
+                     deps))
        (defmethod ~fq-read-sym ~dispatch-key
          ~args-list
          ~@body))))

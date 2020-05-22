@@ -32,9 +32,12 @@
 
 (s/def ::app-config
   (s/keys :req-un 
-          [::state]
+          [::state
+           ::read-handler
+           ::mutation-handler]
           :opt-un
-          [::effect-handlers]))
+          [::read-dependencies
+           ::effect-handlers]))
 
 (defn resolve-read-key
   "Recursively replace a `read-key` with a set of root root-read-keys.
@@ -135,8 +138,8 @@
                           (merge results
                                  {read-to-execute new-result}))))))))
 
-(defmulti mutation-handler (fn [_ event _] event))
-(defmulti read-handler (fn [_ read-key _] read-key))
+(defmulti mutation-handler (fn [_state event _params] event))
+(defmulti read-handler (fn [_state read-key _deps] read-key))
 (def colocated-read-dependencies (atom {}))
 
 (defrecord App 
