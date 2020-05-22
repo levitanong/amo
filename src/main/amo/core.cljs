@@ -30,11 +30,11 @@
 (s/def ::effect-handlers
        (s/map-of keyword? ::effect-handler))
 
-(s/def ::app-config
+(s/def ::app-user-config
   (s/keys :req-un 
           [::state
-           ::read-handler
-           ::mutation-handler]
+           #_::read-handler
+           #_::mutation-handler]
           :opt-un
           [::read-dependencies
            ::effect-handlers]))
@@ -294,8 +294,9 @@
 
 (defn new-app
   [config]
-  (when-not (s/valid? ::app-config config)
-    (throw (ex-info "Invalid app config" (s/explain-data ::app-config config))))
+  (when-not (s/valid? ::app-user-config config)
+    (js/console.error "Invalid app config"
+                      (s/explain-data ::app-user-config config)))
   (let [all-read-keys     (->> read-handler
                                methods
                                keys
