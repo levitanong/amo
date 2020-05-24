@@ -12,7 +12,7 @@
   (s/keys :req-un [::deps]))
 
 (s/def ::defread
-  (s/cat :dispatch-key keyword?
+  (s/cat :dispatch-key any?
          :options (s/? ::options)
          :args-list vector?
          :body (s/* any?)))
@@ -33,11 +33,17 @@
         fq-read-sym 'amo.core/read-handler]
     `(do
        ;; Register dependencies of this read
-       (swap! amo.core/colocated-read-dependencies assoc ~dispatch-key 
-              ~(into (empty deps)
+       (set! amo.core/*read-deps*
+         (assoc amo.core/*read-deps* ~dispatch-key 
+           ~(into (empty deps)
                      ;; Have to do this because conform turns s/or into tuples.
-                     (map second)
-                     deps))
+              (map second)
+              deps)))
+       #_(swap!  assoc ~dispatch-key 
+         ~(into (empty deps)
+                     ;; Have to do this because conform turns s/or into tuples.
+            (map second)
+            deps))
        (defmethod ~fq-read-sym ~dispatch-key
          ~args-list
          ~@body))))

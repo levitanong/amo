@@ -139,13 +139,54 @@
                                  {read-to-execute new-result}))))))))
 
 (defmulti mutation-handler (fn [_state event _params] event))
-(defmulti read-handler (fn [_state read-key _deps] read-key))
-(def colocated-read-dependencies (atom {}))
+(defmulti read-handler (fn [_state _deps read-key _params] read-key))
+(def ^:dynamic *read-deps* {})
+
+(defn resolve-reads 
+  ([env reads] (resolve-reads env reads {}))
+  ([{:keys [state-map dep-map read-handler]
+     :as   env}
+    [read-to-execute & reads-pending-execution] 
+    results]
+    (cond
+    ;; nothing more to evaluate.
+      (nil? read-to-execute) results
+    ;; read-to-execute already had a value. 
+    ;; Likely because a dependent already calculated this.
+      (contains? results read-to-execute) (resolve-reads env reads-pending-execution results)
+    ;; Not found in results, so need to evaluate.
+      :else (let [;; if it's a parametrized read, we split it into the key and params.
+                  [read-key read-params] (if (list? read-to-execute)
+                                           read-to-execute
+                                           [read-to-execute nil])
+                ;; get the deps of read-key, since the deps are declared on the read-key
+                ;; because defreads are dispatched on the read-key, not the read as a whole.
+                ;; HOWEVER, the read cache (or read-values) is keyed on the read as a whole
+                ;; because it's a cache of values.
+                  deps                   (get dep-map read-key)
+                  _ (println "deps" dep-map read-key)
+                ;; resolve those deps.
+                  resolved-deps          (resolve-reads env deps results)
+                  result                 (read-handler state-map
+                                           (select-keys resolved-deps deps)
+                                           read-key
+                                           read-params)]
+              (resolve-reads env
+                reads-pending-execution
+              ;; We want the resolved deps from the dependencies
+              ;; to be included in the results we pass on to recursion
+                (merge results
+                  resolved-deps
+                ;; We key this on read-to-execute instead of read-key
+                ;; because we want to cache on the "instance" level.
+                ;; What we want to store into the cache is: 
+                ;; "the value of this read for this param."
+                  {read-to-execute result}))))))
 
 (defrecord App 
            [state tx-queue subscribers pending-schedule 
             schedule-fn release-fn 
-            read-dependencies read-dependents reads
+            read-dependencies read-dependents
             read-values all-read-keys
             mutation-handler read-handler effect-handlers]
   p/AmoApp
@@ -226,8 +267,8 @@
                          ;; and not derived read-keys. Good thing we use a set, so deduping is free.
                          all-reads (reduce (fn [acc {:subscriber/keys [read-keys]}]
                                              (into acc read-keys))
-                                           (set all-read-keys)
-                                           (vals @subscribers))
+                                     (set all-read-keys)
+                                     (vals @subscribers))
                          reads-to-execute (if (contains? pending-rereads ::all)
                                             ;; The moment a mutation wants to refresh everything, we refresh everything.
                                             all-reads
@@ -237,8 +278,8 @@
                                                       (if-let [dependents (seq (get read-dependents read-to-update))]
                                                         (into acc dependents)
                                                         acc))
-                                                    pending-rereads
-                                                    pending-rereads))
+                                              pending-rereads
+                                              pending-rereads))
                          ;; read-values is an atom of the mapping from read-key 
                          ;; to the result of exeuting the `read-handler`.
                          ;; read-values will be used by subscribers to access the data they need.
@@ -252,30 +293,12 @@
                                       read-dependencies)
                          ;; deref current state since state mutations are done
                          state-map @state
-                         ;; Recursively resolve reads and pass dependencies of read-keys into read-handler
-                         resolve-reads (fn resolve-reads [[read-to-execute & reads-pending-execution] results]
-                                         (cond
-                                           ;; nothing more to evaluate.
-                                           (nil? read-to-execute) results
-                                           ;; read-to-execute already had a value. 
-                                           ;; Likely because a dependent already calculated this.
-                                           (contains? results read-to-execute) (resolve-reads reads-pending-execution results)
-                                           ;; Not found in results, so need to evaluate.
-                                           :else (let [;; get the deps of this read-to-execute
-                                                       deps          (get dep-map read-to-execute)
-                                                     ;; resolve those deps.
-                                                       resolved-deps (resolve-reads deps results)
-                                                       result        (read-handler state-map read-to-execute
-                                                                                   (select-keys resolved-deps deps))]
-                                                   (resolve-reads reads-pending-execution 
-                                                                  ;; We want the resolved deps from the dependencies
-                                                                  ;; to be included in the results we pass on to recursion
-                                                                  (merge results 
-                                                                         resolved-deps
-                                                                         {read-to-execute result})))))
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
-                         new-values (resolve-reads reads-to-execute {})
+                         new-values (resolve-reads {:state-map    state-map 
+                                                    :dep-map      dep-map
+                                                    :read-handler read-handler} 
+                                      reads-to-execute)
                          ;; We merge prev-values and new-values to get the complete map.
                          new-read-values (merge prev-values new-values)]
                      ;; reset! read-values with this merger.
@@ -301,7 +324,7 @@
                                methods
                                keys
                                (remove (partial = :default)))
-        read-dependencies @colocated-read-dependencies
+        read-dependencies *read-deps*
         new-config        (merge config
                                  {:tx-queue          (atom [])
                                   :pending-schedule  (volatile! nil)

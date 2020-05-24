@@ -3,3 +3,5 @@
 node_modules
 resources/public/js
 .shadow-cljs
+.clj-kondo
+target/

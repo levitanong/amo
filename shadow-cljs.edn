@@ -1,7 +1,10 @@
 {:deps     true
  :dev-http {2345 "resources/public"}
- :builds   {:example {:target           :browser
-                      :output-dir       "resources/public/js"
-                      :asset-path       "/js"
-                      :compiler-options {:infer-externs :auto}
-                      :modules          {:client {:init-fn amo.example.client/init}}}}}
+ :builds   {:example   {:target           :browser
+                        :output-dir       "resources/public/js"
+                        :asset-path       "/js"
+                        :compiler-options {:infer-externs :auto}
+                        :modules          {:client {:init-fn amo.example.client/init}}}
+            :cljs-test {:target    :karma
+                        :output-to "target/karma.js"
+                        :ns-regexp "-test$"}}}

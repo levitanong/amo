@@ -15,7 +15,8 @@
 ;; as if by using `get-in`.
 (s/def ::read-key
   (s/or :primitive-key keyword?
-        :path-key ::read-path))
+    :path-key ::read-path
+    :parametrized-key list?))
 
 (s/def ::dependencies
   (s/coll-of ::read-key :kind set?))
