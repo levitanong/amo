@@ -164,7 +164,6 @@
                 ;; HOWEVER, the read cache (or read-values) is keyed on the read as a whole
                 ;; because it's a cache of values.
                   deps                   (get dep-map read-key)
-                  _ (println "deps" dep-map read-key)
                 ;; resolve those deps.
                   resolved-deps          (resolve-reads env deps results)
                   result                 (read-handler state-map

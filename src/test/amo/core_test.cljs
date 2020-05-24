@@ -26,8 +26,6 @@
     [state-map {:root/keys [foo-table]} read-key read-params]
     (get foo-table (:id read-params)))
   
-  (println "asdf" amo.core/*read-deps*)
-  
   (let [env {:state-map    sample-state-map
              :dep-map      amo.core/*read-deps*
              :read-handler amo.core/read-handler}]
