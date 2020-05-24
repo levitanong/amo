@@ -4,10 +4,12 @@
    "
   (:require
    [amo.protocols :as p]
+   [amo.specs :as specs]
    [clojure.set :as set]
    [clojure.spec.alpha :as s]
    [clojure.core.async :refer [put! >! chan] :as a]
-   [rum.core :as rum])
+   [rum.core :as rum]
+   [ghostwheel.core :as g :refer [>defn >defn- >fdef => | <- ?]])
   (:require-macros
    [amo.core]
    [clojure.core.async :refer [go]]
@@ -28,16 +30,16 @@
 (s/def ::effect-handler ifn?)
 
 (s/def ::effect-handlers
-       (s/map-of keyword? ::effect-handler))
+  (s/map-of keyword? ::effect-handler))
 
 (s/def ::app-user-config
-  (s/keys :req-un 
-          [::state
-           #_::read-handler
-           #_::mutation-handler]
-          :opt-un
-          [::read-dependencies
-           ::effect-handlers]))
+  (s/keys :req-un
+    [::state
+     #_::read-handler
+     #_::mutation-handler]
+    :opt-un
+    [::read-dependencies
+     ::effect-handlers]))
 
 (defn resolve-read-key
   "Recursively replace a `read-key` with a set of root root-read-keys.
@@ -52,11 +54,11 @@
     ;; Found, recursively call `resolve-read-key` on the
     ;; dependencies to resolve them. Then collect into a set.
     (into (if include-derived? #{read-key} #{})
-          (mapcat (fn [read-key-dep]
+      (mapcat (fn [read-key-dep]
                     ;; returns a set.
-                    (resolve-read-key dep-map read-key-dep
-                                      :include-derived? include-derived?)))
-          (get dep-map read-key))))
+                (resolve-read-key dep-map read-key-dep
+                  :include-derived? include-derived?)))
+      (get dep-map read-key))))
 
 (defn resolve-dep-map
   "Given some dependency map, resolve each set of dependencies
@@ -74,13 +76,13 @@
    {:foo #{:bag :baz} :bar #{:bag}}"
   [dep-map & {:keys [include-derived?] :or {include-derived? true}}]
   (into {}
-        (map (fn [[read-key dependencies]]
-               [read-key (reduce (fn [acc dep-read-key]
-                                   (into acc (resolve-read-key dep-map dep-read-key
-                                                               :include-derived? include-derived?)))
-                                 #{}
-                                 dependencies)]))
-        dep-map))
+    (map (fn [[read-key dependencies]]
+           [read-key (reduce (fn [acc dep-read-key]
+                               (into acc (resolve-read-key dep-map dep-read-key
+                                           :include-derived? include-derived?)))
+                       #{}
+                       dependencies)]))
+    dep-map))
 
 (defn dependencies->dependents
   "Converts a mapping from dependent to dependencies
@@ -91,62 +93,62 @@
             (reduce (fn [acc2 dependency]
                       ;; Associate the dependents to the dependency
                       (update acc2 dependency
-                              (fn [dependents]
-                                (conj (or dependents #{})
-                                      dependent))))
-                    acc
-                    dependencies))
-          {}
-          read-dependencies))
+                        (fn [dependents]
+                          (conj (or dependents #{})
+                            dependent))))
+              acc
+              dependencies))
+    {}
+    read-dependencies))
 
 ;; For record purposes
 ;; Still slower than current implementation, but nice to see anyway.
 #_(time-label
-   "tail recursion"
-   (loop [[read-to-execute & remaining-reads :as reads-to-execute] (vec reads-to-execute)
-          results                                                  {}]
-     (cond
+    "tail recursion"
+    (loop [[read-to-execute & remaining-reads :as reads-to-execute] (vec reads-to-execute)
+           results                                                  {}]
+      (cond
        ;; nothing more to evaluate.
-       (nil? read-to-execute) results
+        (nil? read-to-execute) results
        ;; read-to-execute already had a value.
        ;; ;; Likely because a dependent already calculated this.
-       (contains? results read-to-execute) (recur remaining-reads results)
+        (contains? results read-to-execute) (recur remaining-reads results)
        ;; Not found in results, so need to evaluate.
-       :else (let [;; get the deps of this read-to-execute
-                   deps            (get dep-map read-to-execute)
+        :else (let [;; get the deps of this read-to-execute
+                    deps            (get dep-map read-to-execute)
                    ;; Finding deps that don't have an entry in results
                    ;; ;; We use vector operations instead of set
                    ;; ;; because we need `into` to be predictable and ordered.
-                   unresolved-deps (filterv (fn [dep]
-                                              (not
-                                               (contains? results dep)))
-                                            deps)]
-               (if (seq unresolved-deps)
+                    unresolved-deps (filterv (fn [dep]
+                                               (not
+                                                 (contains? results dep)))
+                                      deps)]
+                (if (seq unresolved-deps)
                  ;; merge unresolved-deps with reads-to-execute because 
                  ;; we want `read-to-execute` in the queue again.
                  ;; unresolved-deps should be evaluated first.
-                 (recur (into unresolved-deps reads-to-execute) results)
+                  (recur (into unresolved-deps reads-to-execute) results)
                  ;; All deps have already have been resolve
                  ;; i.e. have entries in `results`.
                  ;; Can now evaluate a new result using `read-handler`,
                  ;; passing the deps subset of results.
-                 (let [new-result (read-handler state-map read-to-execute
-                                                (select-keys results deps))]
+                  (let [new-result (read-handler state-map read-to-execute
+                                     (select-keys results deps))]
                    ;; Look at all the other read keys.
                    ;; ;; Add new result to `results`.
-                   (recur remaining-reads
-                          (merge results
-                                 {read-to-execute new-result}))))))))
+                    (recur remaining-reads
+                      (merge results
+                        {read-to-execute new-result}))))))))
 
 (defmulti mutation-handler (fn [_state event _params] event))
 (defmulti read-handler (fn [_state _deps read-key _params] read-key))
 (def ^:dynamic *read-deps* {})
 
-(defn resolve-reads 
+(defn resolve-reads
   ([env reads] (resolve-reads env reads {}))
   ([{:keys [state-map dep-map read-handler]
      :as   env}
-    [read-to-execute & reads-pending-execution] 
+    [read-to-execute & reads-pending-execution]
     results]
     (cond
     ;; nothing more to evaluate.
@@ -182,25 +184,25 @@
                 ;; "the value of this read for this param."
                   {read-to-execute result}))))))
 
-(defrecord App 
-           [state tx-queue subscribers pending-schedule 
-            schedule-fn release-fn 
-            read-dependencies read-dependents
-            read-values all-read-keys
-            mutation-handler read-handler effect-handlers]
+(defrecord App
+  [state tx-queue subscribers pending-schedule
+   schedule-fn release-fn
+   read-dependencies read-dependents
+   read-values all-read-keys
+   mutation-handler read-handler effect-handlers]
   p/AmoApp
   (p/-amo-app? [this] true)
   p/IPublisher
   (p/-add-subscriber! [this subscriber]
     (swap! subscribers
-           (fn [s]
-             (assoc (or s {})
-                    (:subscriber/id subscriber)
-                    subscriber))))
+      (fn [s]
+        (assoc (or s {})
+          (:subscriber/id subscriber)
+          subscriber))))
   (p/-remove-subscriber! [this id]
     (swap! subscribers
-           (fn [s]
-             (dissoc (or s {}) id))))
+      (fn [s]
+        (dissoc (or s {}) id))))
   p/ISchedule
   (p/-schedule! [this f]
     (when-let [id @pending-schedule]
@@ -218,95 +220,95 @@
 
              ;; accept cargo in cargo hold
     (swap! tx-queue
-           (fn [queue]
-             (into (or queue []) mutations)))
+      (fn [queue]
+        (into (or queue []) mutations)))
              ;; Don't worry about several schedules happening at a time.
              ;; Each time a new transaction is scheduled, any pending schedules
              ;; get cancelled, and the new schedule takes on the responsibility
              ;; of the old one.
     (p/-schedule! this
-               (fn [_]
+      (fn [_]
                  ;; Train is leaving. `txs` is the collection of cargo that made it
                  ;; onto the train.
-                 (let [txs       @tx-queue
+        (let [txs       @tx-queue
                        ;; cargo has been transfered to train, so now the platform is empty.
                        ;; Our train metaphor can now end.
-                       _         (reset! tx-queue [])
-                       refreshes (atom #{})]
+              _         (reset! tx-queue [])
+              refreshes (atom #{})]
                    ;; Update state and apply side effects
-                   (swap! state
-                          (fn [old-state]
-                            (reduce (fn [st [tx-key tx-params]]
-                                      (let [effect-map (mutation-handler st tx-key tx-params)
-                                            new-state  (:state effect-map)
-                                            tx-refresh (:refresh effect-map)
-                                            effects    (-> effect-map (dissoc :state) (dissoc :refresh))]
+          (swap! state
+            (fn [old-state]
+              (reduce (fn [st [tx-key tx-params]]
+                        (let [effect-map (mutation-handler st tx-key tx-params)
+                              new-state  (:state effect-map)
+                              tx-refresh (:refresh effect-map)
+                              effects    (-> effect-map (dissoc :state) (dissoc :refresh))]
                                         ;; Collect refreshes
-                                        (swap! refreshes
-                                               (fn [r]
-                                                 (into (or r #{}) tx-refresh)))
+                          (swap! refreshes
+                            (fn [r]
+                              (into (or r #{}) tx-refresh)))
                                         ;; Apply side effects
-                                        (doseq [[effect-id effect-data] effects]
-                                          (let [effect-handler (get effect-handlers effect-id)]
-                                            (when-not effect-handler
-                                              (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
-                                            (effect-handler this effect-data)))
-                                        (or new-state st)))
-                                    old-state
-                                    txs)))
+                          (doseq [[effect-id effect-data] effects]
+                            (let [effect-handler (get effect-handlers effect-id)]
+                              (when-not effect-handler
+                                (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
+                              (effect-handler this effect-data)))
+                          (or new-state st)))
+                old-state
+                txs)))
                    ;; Execute refreshes
                    ;; Go through all subscribers, see if any of them care about pending refreshes.
-                   (let [pending-rereads @refreshes
+          (let [pending-rereads @refreshes
                          ;; all-read-keys represents all the derived keys
                          ;; Taken from all the dispatch values of the multimethod `read-handler`,
                          ;; sans the `:default` dispatch.
-                         
+
                          ;; Subscribers also directly specify the set of read-keys
                          ;; they care about. What we want from this is the root read-keys
                          ;; and not derived read-keys. Good thing we use a set, so deduping is free.
-                         all-reads (reduce (fn [acc {:subscriber/keys [read-keys]}]
-                                             (into acc read-keys))
-                                     (set all-read-keys)
-                                     (vals @subscribers))
-                         reads-to-execute (if (contains? pending-rereads ::all)
+                all-reads (reduce (fn [acc {:subscriber/keys [read-keys]}]
+                                    (into acc read-keys))
+                            (set all-read-keys)
+                            (vals @subscribers))
+                reads-to-execute (if (contains? pending-rereads ::all)
                                             ;; The moment a mutation wants to refresh everything, we refresh everything.
-                                            all-reads
+                                   all-reads
                                             ;; Otherwise, flesh out the pending rereads with `read-dependents`
                                             ;; Which is derived from the dependency map of read-keys.
-                                            (reduce (fn [acc read-to-update]
-                                                      (if-let [dependents (seq (get read-dependents read-to-update))]
-                                                        (into acc dependents)
-                                                        acc))
-                                              pending-rereads
-                                              pending-rereads))
+                                   (reduce (fn [acc read-to-update]
+                                             (if-let [dependents (seq (get read-dependents read-to-update))]
+                                               (into acc dependents)
+                                               acc))
+                                     pending-rereads
+                                     pending-rereads))
                          ;; read-values is an atom of the mapping from read-key 
                          ;; to the result of exeuting the `read-handler`.
                          ;; read-values will be used by subscribers to access the data they need.
                          ;; This way, we avoid unnecessary repeat executions of read-handler.
-                         
+
                          ;; We deref it now, to get the previous values.
-                         prev-values @read-values
+                prev-values @read-values
                          ;; Support both atom and map for read-dependencies
-                         dep-map    (if (instance? Atom read-dependencies)
-                                      @read-dependencies 
-                                      read-dependencies)
+                dep-map    (if (instance? Atom read-dependencies)
+                             @read-dependencies
+                             read-dependencies)
                          ;; deref current state since state mutations are done
-                         state-map @state
+                state-map @state
                          ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
                          ;; that can be used to reset! `read-values`.
-                         new-values (resolve-reads {:state-map    state-map 
-                                                    :dep-map      dep-map
-                                                    :read-handler read-handler} 
-                                      reads-to-execute)
+                new-values (resolve-reads {:state-map    state-map
+                                           :dep-map      dep-map
+                                           :read-handler read-handler}
+                             reads-to-execute)
                          ;; We merge prev-values and new-values to get the complete map.
-                         new-read-values (merge prev-values new-values)]
+                new-read-values (merge prev-values new-values)]
                      ;; reset! read-values with this merger.
-                     (reset! read-values new-read-values)
+            (reset! read-values new-read-values)
                      ;; Notify subscribers who care about a read-key inside reads-to-execute to rerender.
-                     (doseq [[_ {:subscriber/keys [read-keys render]}] @subscribers]
-                       (when (seq (set/intersection read-keys reads-to-execute))
-                         (render (select-keys prev-values read-keys)
-                                 (select-keys new-read-values read-keys))))))))))
+            (doseq [[_ {:subscriber/keys [read-keys render]}] @subscribers]
+              (when (seq (set/intersection read-keys reads-to-execute))
+                (render (select-keys prev-values read-keys)
+                  (select-keys new-read-values read-keys))))))))))
 
 ;; PUBLIC API
 (defn transact! [app mutations] (p/-transact! app mutations))
@@ -318,26 +320,26 @@
   [config]
   (when-not (s/valid? ::app-user-config config)
     (js/console.error "Invalid app config"
-                      (s/explain-data ::app-user-config config)))
+      (s/explain-data ::app-user-config config)))
   (let [all-read-keys     (->> read-handler
                                methods
                                keys
                                (remove (partial = :default)))
         read-dependencies *read-deps*
         new-config        (merge config
-                                 {:tx-queue          (atom [])
-                                  :pending-schedule  (volatile! nil)
-                                  :subscribers       (atom {})
-                                  :schedule-fn       js/requestAnimationFrame
-                                  :release-fn        js/cancelAnimationFrame
-                                  :all-read-keys     all-read-keys
-                                  :mutation-handler  mutation-handler
-                                  :read-values       (atom {})
-                                  :read-handler      read-handler
-                                  :read-dependencies read-dependencies
-                                  :read-dependents   (-> read-dependencies
-                                                         (resolve-dep-map)
-                                                         (dependencies->dependents))})]
+                            {:tx-queue          (atom [])
+                             :pending-schedule  (volatile! nil)
+                             :subscribers       (atom {})
+                             :schedule-fn       js/requestAnimationFrame
+                             :release-fn        js/cancelAnimationFrame
+                             :all-read-keys     all-read-keys
+                             :mutation-handler  mutation-handler
+                             :read-values       (atom {})
+                             :read-handler      read-handler
+                             :read-dependencies read-dependencies
+                             :read-dependents   (-> read-dependencies
+                                                    (resolve-dep-map)
+                                                    (dependencies->dependents))})]
     (map->App new-config)))
 
 
@@ -348,7 +350,123 @@
        (filter amo-app?)
        first))
 
-(defn rum-subscribe
+(>defn rum-subscribe
+  [read-f]
+  [(s/or
+     :read-keys set?
+     :read-f (s/fspec
+               :args (s/cat :args (s/* any?))
+               :ret (s/coll-of :amo.specs/read-key :kind set?))) => any?]
+  (let [id (random-uuid)]
+    {:init         (fn [state _props]
+                     (let [{:rum/keys [react-component args]} state
+                           amo-app                            (rum-state->amo-app state)
+                           read-keys                          (cond
+                                                                (set? read-f) read-f 
+                                                                (fn? read-f) (apply read-f args))]
+                       (add-subscriber! amo-app
+                         {:subscriber/id        id
+                          :subscriber/read-keys read-keys
+                          :subscriber/render    (fn [_prev-props _props]
+                                                  (rum/request-render react-component))})
+                       (assoc state
+                         :amo.subscriber/id id
+                         :amo.subscriber/read-keys read-keys)))
+     :wrap-render  (fn [render-fn]
+                     (fn [rum-state]
+                       (let [app                                                        (rum-state->amo-app rum-state)
+                             {:amo.subscriber/keys [read-keys]}                         rum-state
+                             {:keys [state read-handler read-values read-dependencies]} app
+                             values                                                     @read-values
+                             state-map                                                  @state
+                             missing-keys                                               (set/difference read-keys (set (keys values)))
+                             ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
+                             ;; This means that when deref is first called, the subscribers atom is not updated.
+                             ;; This also means that primitive-read-keys in the component that uses this atom won't be
+                             ;; included in all-read-keys. To compensate, we simply get the difference between
+                             ;; the keys of `read-values` and the read-keys we have here.
+                             props                                                      (reduce (fn [props missing-read]
+                                                                                                  (let [[read-key read-params] (if (list? missing-read)
+                                                                                                                                 missing-read
+                                                                                                                                 [missing-read nil])]
+                                                                                                    (assoc props missing-read
+                                                                                                      (read-handler state-map
+                                                                                                        read-dependencies
+                                                                                                        read-key
+                                                                                                        read-params))))
+                                                                                          (select-keys values read-keys)
+                                                                                          missing-keys)]
+                         (render-fn (-> rum-state
+                                        (update :rum/args
+                                          (fn [args]
+                                            (reduce (fn [acc arg]
+                                                      (if (amo-app? arg)
+                                                        (into acc [arg props])
+                                                        (conj acc arg)))
+                                              []
+                                              args))))))))
+     :will-unmount (fn [state]
+                     (let [amo-app (rum-state->amo-app state)]
+                       (remove-subscriber! amo-app id)
+                       (-> state
+                           (dissoc :amo.subscriber/id)
+                           (dissoc :amo.subscriber/read-keys))))}))
+
+#_(>defn rum-subscribe2
+  [read-f]
+  [(s/fspec
+     :args (s/cat :props any?)
+     :ret (s/coll-of ::specs/read-key :kind set?)) => any?]
+  (let [id (random-uuid)]
+    {:init         (fn [state _props]
+                     (let [{:rum/keys [react-component args]} state
+                           amo-app                            (rum-state->amo-app state)
+                           read-keys                          (apply read-f args)]
+                       (add-subscriber! amo-app
+                         {:subscriber/id        id
+                          :subscriber/read-keys read-keys
+                          :subscriber/render    (fn [_prev-props _props]
+                                                  (rum/request-render react-component))})
+                       (assoc state
+                         :amo.subscriber/id id
+                         :amo.subscriber/read-keys read-keys)))
+     :wrap-render  (fn [render-fn]
+                     (fn [rum-state]
+                       (let [app                                      (rum-state->amo-app rum-state)
+                             {:amo.subscriber/keys [read-keys]}       rum-state
+                             {:keys [read-handler read-values state]} app
+                             values                                   @read-values
+                             state-map                                @state
+                             missing-keys                             (set/difference read-keys (set (keys values)))
+                             ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
+                             ;; This means that when deref is first called, the subscribers atom is not updated.
+                             ;; This also means that primitive-read-keys in the component that uses this atom won't be
+                             ;; included in all-read-keys. To compensate, we simply get the difference between
+                             ;; the keys of `read-values` and the read-keys we have here.
+                             props                                    (reduce (fn [props missing-key]
+                                                                                (assoc props missing-key (read-handler state-map
+                                                                                                           {}
+                                                                                                           missing-key
+                                                                                                           nil)))
+                                                                        (select-keys values read-keys)
+                                                                        missing-keys)]
+                         (render-fn (-> rum-state
+                                        (update :rum/args
+                                          (fn [args]
+                                            (reduce (fn [acc arg]
+                                                      (if (amo-app? arg)
+                                                        (into acc [arg props])
+                                                        (conj acc arg)))
+                                              []
+                                              args))))))))
+     :will-unmount (fn [state]
+                     (let [amo-app (rum-state->amo-app state)]
+                       (remove-subscriber! amo-app id)
+                       (-> state
+                           (dissoc :amo.subscriber/id)
+                           (dissoc :amo.subscriber/read-keys))))}))
+
+#_(defn rum-subscribe
   "Mixin. Works in conjunction with [[react]].
   
    ```
@@ -365,13 +483,13 @@
                      (let [{:rum/keys [react-component]} state
                            amo-app                       (rum-state->amo-app state)]
                        (add-subscriber! amo-app
-                                        {:subscriber/id        id
-                                         :subscriber/read-keys read-keys
-                                         :subscriber/render    (fn [_prev-props _props]
-                                                                 (rum/request-render react-component))}))
+                         {:subscriber/id        id
+                          :subscriber/read-keys read-keys
+                          :subscriber/render    (fn [_prev-props _props]
+                                                  (rum/request-render react-component))}))
                      (assoc state
-                            :amo.subscriber/id id
-                            :amo.subscriber/read-keys read-keys))
+                       :amo.subscriber/id id
+                       :amo.subscriber/read-keys read-keys))
      :wrap-render  (fn [render-fn]
                      (fn [rum-state]
                        (let [app                                      (rum-state->amo-app rum-state)
@@ -386,17 +504,17 @@
                              ;; the keys of `read-values` and the read-keys we have here.
                              props                                    (reduce (fn [props missing-key]
                                                                                 (assoc props missing-key (read-handler state-map missing-key)))
-                                                                              (select-keys values read-keys)
-                                                                              missing-keys)]
+                                                                        (select-keys values read-keys)
+                                                                        missing-keys)]
                          (render-fn (-> rum-state
                                         (update :rum/args
-                                                (fn [args]
-                                                  (reduce (fn [acc arg]
-                                                            (if (amo-app? arg)
-                                                              (into acc [arg props])
-                                                              (conj acc arg)))
-                                                          []
-                                                          args))))))))
+                                          (fn [args]
+                                            (reduce (fn [acc arg]
+                                                      (if (amo-app? arg)
+                                                        (into acc [arg props])
+                                                        (conj acc arg)))
+                                              []
+                                              args))))))))
      :will-unmount (fn [state]
                      (let [amo-app (rum-state->amo-app state)]
                        (remove-subscriber! amo-app id)
@@ -420,21 +538,21 @@
 
   IEquiv
   (-equiv [this other]
-    (identical? this other))
+          (identical? this other))
 
   IDeref
   (-deref [_]
-    (let [{:keys [read-handler read-values state]} app
-          values                                   @read-values
-          state-map                                @state
-          missing-keys                             (set/difference read-keys (set (keys values)))]
+          (let [{:keys [read-handler read-values state]} app
+                values                                   @read-values
+                state-map                                @state
+                missing-keys                             (set/difference read-keys (set (keys values)))]
       ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
       ;; This means that when deref is first called, the subscribers atom is not updated.
       ;; This also means that primitive-read-keys in the component that uses this atom won't be
       ;; included in all-read-keys. To compensate, we simply get the difference between
       ;; the keys of `read-values` and the read-keys we have here.
-      (reduce (fn [props missing-key]
-                (assoc props missing-key (read-handler state-map missing-key {})))
+            (reduce (fn [props missing-key]
+                      (assoc props missing-key (read-handler state-map missing-key {})))
               (select-keys values read-keys)
               missing-keys)))
 
@@ -444,36 +562,36 @@
               ;; key is specific to the component rendering this cursor.
               ;; Which means, if there are several cursor on the same component
               ;; they'll all have the same key.
-    (reset! id key)
-    (when (= read-keys #{:all-agencies})
-      (js/console.log "all-agencies watch"))
-    (add-subscriber! app
-                     {:subscriber/id        @id
-                      :subscriber/read-keys read-keys
-                      :subscriber/render    (fn [prev-props props]
-                                              (callback this @id prev-props props))})
-    this)
+              (reset! id key)
+              (when (= read-keys #{:all-agencies})
+                (js/console.log "all-agencies watch"))
+              (add-subscriber! app
+                {:subscriber/id        @id
+                 :subscriber/read-keys read-keys
+                 :subscriber/render    (fn [prev-props props]
+                                         (callback this @id prev-props props))})
+              this)
 
   (-remove-watch [this key]
-    (remove-subscriber! app @id)
-    this)
+                 (remove-subscriber! app @id)
+                 this)
 
   IHash
   (-hash [this] (goog/getUid this))
 
   IPrintWithWriter
   (-pr-writer [this writer opts]
-    (-write writer "#object [amo.core.ReadCursor]")
-    (pr-writer {:val (-deref this)} writer opts)
-    (-write writer "]")))
+              (-write writer "#object [amo.core.ReadCursor]")
+              (pr-writer {:val (-deref this)} writer opts)
+              (-write writer "]")))
 
 ;; DEPRECATED
 (defn subscribe-reads
   ([app read-keys]
-   (subscribe-reads app
-                    {:id        (atom nil)
-                     :read-keys read-keys}
-                    {}))
+    (subscribe-reads app
+      {:id        (atom nil)
+       :read-keys read-keys}
+      {}))
   ([app {:keys [id read-keys]} {:keys [meta]
                                 :as   options}]
-   (->ReadCursor app id read-keys meta)))
+    (->ReadCursor app id read-keys meta)))
