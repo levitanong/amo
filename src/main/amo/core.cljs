@@ -347,7 +347,8 @@
   [state]
   (->> state
        :rum/args
-       (filter amo-app?)
+       #_(filter amo-app?)
+       (filter (fn [arg] (contains? arg ::app)))
        first))
 
 (>defn rum-subscribe
@@ -358,13 +359,13 @@
                :args (s/cat :args (s/* any?))
                :ret (s/coll-of :amo.specs/read-key :kind set?))) => any?]
   (let [id (random-uuid)]
-    {:init         (fn [state _props]
+    {:will-mount   (fn [state]
                      (let [{:rum/keys [react-component args]} state
-                           amo-app                            (rum-state->amo-app state)
+                           {::keys [app]}                     (rum-state->amo-app state)
                            read-keys                          (cond
-                                                                (set? read-f) read-f 
+                                                                (set? read-f) read-f
                                                                 (fn? read-f) (apply read-f args))]
-                       (add-subscriber! amo-app
+                       (add-subscriber! app
                          {:subscriber/id        id
                           :subscriber/read-keys read-keys
                           :subscriber/render    (fn [_prev-props _props]
@@ -374,8 +375,8 @@
                          :amo.subscriber/read-keys read-keys)))
      :wrap-render  (fn [render-fn]
                      (fn [rum-state]
-                       (let [app                                                        (rum-state->amo-app rum-state)
-                             {:amo.subscriber/keys [read-keys]}                         rum-state
+                       (let [{::keys [app]}                                             (rum-state->amo-app rum-state)
+                             {:amo.subscriber/keys [read-keys] :rum/keys [args]}        rum-state
                              {:keys [state read-handler read-values read-dependencies]} app
                              values                                                     @read-values
                              state-map                                                  @state
@@ -399,75 +400,78 @@
                          (render-fn (-> rum-state
                                         (update :rum/args
                                           (fn [args]
-                                            (reduce (fn [acc arg]
-                                                      (if (amo-app? arg)
-                                                        (into acc [arg props])
-                                                        (conj acc arg)))
-                                              []
+                                            ;; (into [props] args)
+                                            (map (fn [arg]
+                                                   (if (contains? arg ::app)
+                                                     (assoc arg ::props props)
+                                                     arg)
+                                                   #_(if (amo-app? arg)
+                                                       (into acc [props arg])
+                                                       (conj acc arg)))
                                               args))))))))
      :will-unmount (fn [state]
-                     (let [amo-app (rum-state->amo-app state)]
-                       (remove-subscriber! amo-app id)
+                     (let [{::keys [app]} (rum-state->amo-app state)]
+                       (remove-subscriber! app id)
                        (-> state
                            (dissoc :amo.subscriber/id)
                            (dissoc :amo.subscriber/read-keys))))}))
 
 #_(>defn rum-subscribe2
-  [read-f]
-  [(s/fspec
-     :args (s/cat :props any?)
-     :ret (s/coll-of ::specs/read-key :kind set?)) => any?]
-  (let [id (random-uuid)]
-    {:init         (fn [state _props]
-                     (let [{:rum/keys [react-component args]} state
-                           amo-app                            (rum-state->amo-app state)
-                           read-keys                          (apply read-f args)]
-                       (add-subscriber! amo-app
-                         {:subscriber/id        id
-                          :subscriber/read-keys read-keys
-                          :subscriber/render    (fn [_prev-props _props]
-                                                  (rum/request-render react-component))})
-                       (assoc state
-                         :amo.subscriber/id id
-                         :amo.subscriber/read-keys read-keys)))
-     :wrap-render  (fn [render-fn]
-                     (fn [rum-state]
-                       (let [app                                      (rum-state->amo-app rum-state)
-                             {:amo.subscriber/keys [read-keys]}       rum-state
-                             {:keys [read-handler read-values state]} app
-                             values                                   @read-values
-                             state-map                                @state
-                             missing-keys                             (set/difference read-keys (set (keys values)))
+    [read-f]
+    [(s/fspec
+       :args (s/cat :props any?)
+       :ret (s/coll-of ::specs/read-key :kind set?)) => any?]
+    (let [id (random-uuid)]
+      {:init         (fn [state _props]
+                       (let [{:rum/keys [react-component args]} state
+                             amo-app                            (rum-state->amo-app state)
+                             read-keys                          (apply read-f args)]
+                         (add-subscriber! amo-app
+                           {:subscriber/id        id
+                            :subscriber/read-keys read-keys
+                            :subscriber/render    (fn [_prev-props _props]
+                                                    (rum/request-render react-component))})
+                         (assoc state
+                           :amo.subscriber/id id
+                           :amo.subscriber/read-keys read-keys)))
+       :wrap-render  (fn [render-fn]
+                       (fn [rum-state]
+                         (let [app                                      (rum-state->amo-app rum-state)
+                               {:amo.subscriber/keys [read-keys]}       rum-state
+                               {:keys [read-handler read-values state]} app
+                               values                                   @read-values
+                               state-map                                @state
+                               missing-keys                             (set/difference read-keys (set (keys values)))
                              ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
                              ;; This means that when deref is first called, the subscribers atom is not updated.
                              ;; This also means that primitive-read-keys in the component that uses this atom won't be
                              ;; included in all-read-keys. To compensate, we simply get the difference between
                              ;; the keys of `read-values` and the read-keys we have here.
-                             props                                    (reduce (fn [props missing-key]
-                                                                                (assoc props missing-key (read-handler state-map
-                                                                                                           {}
-                                                                                                           missing-key
-                                                                                                           nil)))
-                                                                        (select-keys values read-keys)
-                                                                        missing-keys)]
-                         (render-fn (-> rum-state
-                                        (update :rum/args
-                                          (fn [args]
-                                            (reduce (fn [acc arg]
-                                                      (if (amo-app? arg)
-                                                        (into acc [arg props])
-                                                        (conj acc arg)))
-                                              []
-                                              args))))))))
-     :will-unmount (fn [state]
-                     (let [amo-app (rum-state->amo-app state)]
-                       (remove-subscriber! amo-app id)
-                       (-> state
-                           (dissoc :amo.subscriber/id)
-                           (dissoc :amo.subscriber/read-keys))))}))
+                               props                                    (reduce (fn [props missing-key]
+                                                                                  (assoc props missing-key (read-handler state-map
+                                                                                                             {}
+                                                                                                             missing-key
+                                                                                                             nil)))
+                                                                          (select-keys values read-keys)
+                                                                          missing-keys)]
+                           (render-fn (-> rum-state
+                                          (update :rum/args
+                                            (fn [args]
+                                              (reduce (fn [acc arg]
+                                                        (if (amo-app? arg)
+                                                          (into acc [arg props])
+                                                          (conj acc arg)))
+                                                []
+                                                args))))))))
+       :will-unmount (fn [state]
+                       (let [amo-app (rum-state->amo-app state)]
+                         (remove-subscriber! amo-app id)
+                         (-> state
+                             (dissoc :amo.subscriber/id)
+                             (dissoc :amo.subscriber/read-keys))))}))
 
 #_(defn rum-subscribe
-  "Mixin. Works in conjunction with [[react]].
+    "Mixin. Works in conjunction with [[react]].
   
    ```
    (rum/defc comp < rum/reactive
@@ -477,50 +481,50 @@
    (rum/mount (comp *counter) js/document.body)
    (swap! *counter inc) ;; will force comp to re-render
    ```"
-  [read-keys]
-  (let [id (random-uuid)]
-    {:init         (fn [state _props]
-                     (let [{:rum/keys [react-component]} state
-                           amo-app                       (rum-state->amo-app state)]
-                       (add-subscriber! amo-app
-                         {:subscriber/id        id
-                          :subscriber/read-keys read-keys
-                          :subscriber/render    (fn [_prev-props _props]
-                                                  (rum/request-render react-component))}))
-                     (assoc state
-                       :amo.subscriber/id id
-                       :amo.subscriber/read-keys read-keys))
-     :wrap-render  (fn [render-fn]
-                     (fn [rum-state]
-                       (let [app                                      (rum-state->amo-app rum-state)
-                             {:keys [read-handler read-values state]} app
-                             values                                   @read-values
-                             state-map                                @state
-                             missing-keys                             (set/difference read-keys (set (keys values)))
+    [read-keys]
+    (let [id (random-uuid)]
+      {:init         (fn [state _props]
+                       (let [{:rum/keys [react-component]} state
+                             amo-app                       (rum-state->amo-app state)]
+                         (add-subscriber! amo-app
+                           {:subscriber/id        id
+                            :subscriber/read-keys read-keys
+                            :subscriber/render    (fn [_prev-props _props]
+                                                    (rum/request-render react-component))}))
+                       (assoc state
+                         :amo.subscriber/id id
+                         :amo.subscriber/read-keys read-keys))
+       :wrap-render  (fn [render-fn]
+                       (fn [rum-state]
+                         (let [app                                      (rum-state->amo-app rum-state)
+                               {:keys [read-handler read-values state]} app
+                               values                                   @read-values
+                               state-map                                @state
+                               missing-keys                             (set/difference read-keys (set (keys values)))
                              ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
                              ;; This means that when deref is first called, the subscribers atom is not updated.
                              ;; This also means that primitive-read-keys in the component that uses this atom won't be
                              ;; included in all-read-keys. To compensate, we simply get the difference between
                              ;; the keys of `read-values` and the read-keys we have here.
-                             props                                    (reduce (fn [props missing-key]
-                                                                                (assoc props missing-key (read-handler state-map missing-key)))
-                                                                        (select-keys values read-keys)
-                                                                        missing-keys)]
-                         (render-fn (-> rum-state
-                                        (update :rum/args
-                                          (fn [args]
-                                            (reduce (fn [acc arg]
-                                                      (if (amo-app? arg)
-                                                        (into acc [arg props])
-                                                        (conj acc arg)))
-                                              []
-                                              args))))))))
-     :will-unmount (fn [state]
-                     (let [amo-app (rum-state->amo-app state)]
-                       (remove-subscriber! amo-app id)
-                       (-> state
-                           (dissoc :amo.subscriber/id)
-                           (dissoc :amo.subscriber/read-keys))))}))
+                               props                                    (reduce (fn [props missing-key]
+                                                                                  (assoc props missing-key (read-handler state-map missing-key)))
+                                                                          (select-keys values read-keys)
+                                                                          missing-keys)]
+                           (render-fn (-> rum-state
+                                          (update :rum/args
+                                            (fn [args]
+                                              (reduce (fn [acc arg]
+                                                        (if (amo-app? arg)
+                                                          (into acc [arg props])
+                                                          (conj acc arg)))
+                                                []
+                                                args))))))))
+       :will-unmount (fn [state]
+                       (let [amo-app (rum-state->amo-app state)]
+                         (remove-subscriber! amo-app id)
+                         (-> state
+                             (dissoc :amo.subscriber/id)
+                             (dissoc :amo.subscriber/read-keys))))}))
 
 ;; DEPRECATED
 (def subscribe rum-subscribe)
