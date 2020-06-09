@@ -249,10 +249,13 @@
                               (into (or r #{}) tx-refresh)))
                                         ;; Apply side effects
                           (doseq [[effect-id effect-data] effects]
-                            (let [effect-handler (get effect-handlers effect-id)]
+                            (let [effect-key     (if (set? effect-id) :hybrid effect-id)
+                                  effect-handler (get effect-handlers effect-id)]
                               (when-not effect-handler
                                 (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
-                              (effect-handler this effect-data)))
+                              (effect-handler this (assoc effect-data
+                                                     :effect-id effect-id
+                                                     :effect-key effect-key))))
                           (or new-state st)))
                 old-state
                 txs)))
