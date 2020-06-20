@@ -189,7 +189,7 @@
    schedule-fn release-fn
    read-dependencies read-dependents
    read-values all-read-keys
-   mutation-handler read-handler effect-handlers]
+   mutation-handler read-handler effect-handlers effect-handler]
   p/AmoApp
   (p/-amo-app? [this] true)
   p/IPublisher
@@ -249,13 +249,15 @@
                               (into (or r #{}) tx-refresh)))
                                         ;; Apply side effects
                           (doseq [[effect-key effect-data] effects]
-                            (let [effect-id     (if (set? effect-key) :compound effect-key)
-                                  effect-handler (get effect-handlers effect-id)]
-                              (when-not effect-handler
-                                (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
-                              (effect-handler this (assoc effect-data
-                                                     :effect-id effect-id
-                                                     :effect-key effect-key))))
+                            (if effect-handler
+                              (effect-handler this effect-key effect-data)
+                              (let [effect-id      (if (set? effect-key) :compound effect-key)
+                                    effect-handler (get effect-handlers effect-id)]
+                                (when-not effect-handler
+                                  (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
+                                (effect-handler this (assoc effect-data
+                                                       :effect-id effect-id
+                                                       :effect-key effect-key)))))
                           (or new-state st)))
                 old-state
                 txs)))
@@ -308,8 +310,10 @@
                      ;; reset! read-values with this merger.
             (reset! read-values new-read-values)
                      ;; Notify subscribers who care about a read-key inside reads-to-execute to rerender.
-            (doseq [[_ {:subscriber/keys [read-keys render]}] @subscribers]
-              (when (seq (set/intersection read-keys reads-to-execute))
+            (doseq [[_ {:subscriber/keys [id read-keys render]}] @subscribers]
+              (when (and (seq (set/intersection read-keys reads-to-execute))
+                      ;; Still check because race conditions happen
+                      (contains? @subscribers id))
                 (render (select-keys prev-values read-keys)
                   (select-keys new-read-values read-keys))))))))))
 
@@ -545,23 +549,23 @@
 
   IEquiv
   (-equiv [this other]
-          (identical? this other))
+    (identical? this other))
 
   IDeref
   (-deref [_]
-          (let [{:keys [read-handler read-values state]} app
-                values                                   @read-values
-                state-map                                @state
-                missing-keys                             (set/difference read-keys (set (keys values)))]
+    (let [{:keys [read-handler read-values state]} app
+          values                                   @read-values
+          state-map                                @state
+          missing-keys                             (set/difference read-keys (set (keys values)))]
       ;; because of quirks in the Rum lifecycle, deref gets called before the watcher add-watch happens.
       ;; This means that when deref is first called, the subscribers atom is not updated.
       ;; This also means that primitive-read-keys in the component that uses this atom won't be
       ;; included in all-read-keys. To compensate, we simply get the difference between
       ;; the keys of `read-values` and the read-keys we have here.
-            (reduce (fn [props missing-key]
-                      (assoc props missing-key (read-handler state-map missing-key {})))
-              (select-keys values read-keys)
-              missing-keys)))
+      (reduce (fn [props missing-key]
+                (assoc props missing-key (read-handler state-map missing-key {})))
+        (select-keys values read-keys)
+        missing-keys)))
 
 
   IWatchable
@@ -569,28 +573,28 @@
               ;; key is specific to the component rendering this cursor.
               ;; Which means, if there are several cursor on the same component
               ;; they'll all have the same key.
-              (reset! id key)
-              (when (= read-keys #{:all-agencies})
-                (js/console.log "all-agencies watch"))
-              (add-subscriber! app
-                {:subscriber/id        @id
-                 :subscriber/read-keys read-keys
-                 :subscriber/render    (fn [prev-props props]
-                                         (callback this @id prev-props props))})
-              this)
+    (reset! id key)
+    (when (= read-keys #{:all-agencies})
+      (js/console.log "all-agencies watch"))
+    (add-subscriber! app
+      {:subscriber/id        @id
+       :subscriber/read-keys read-keys
+       :subscriber/render    (fn [prev-props props]
+                               (callback this @id prev-props props))})
+    this)
 
   (-remove-watch [this key]
-                 (remove-subscriber! app @id)
-                 this)
+    (remove-subscriber! app @id)
+    this)
 
   IHash
   (-hash [this] (goog/getUid this))
 
   IPrintWithWriter
   (-pr-writer [this writer opts]
-              (-write writer "#object [amo.core.ReadCursor]")
-              (pr-writer {:val (-deref this)} writer opts)
-              (-write writer "]")))
+    (-write writer "#object [amo.core.ReadCursor]")
+    (pr-writer {:val (-deref this)} writer opts)
+    (-write writer "]")))
 
 ;; DEPRECATED
 (defn subscribe-reads
