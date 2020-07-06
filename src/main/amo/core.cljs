@@ -238,27 +238,29 @@
                    ;; Update state and apply side effects
           (swap! state
             (fn [old-state]
-              (reduce (fn [st [tx-key tx-params]]
-                        (let [effect-map (mutation-handler st tx-key tx-params)
-                              new-state  (:state effect-map)
-                              tx-refresh (:refresh effect-map)
-                              effects    (-> effect-map (dissoc :state) (dissoc :refresh))]
+              (reduce (fn [st [tx-key tx-params :as tx]]
+                        (if-not tx
+                          st
+                          (let [effect-map (mutation-handler st tx-key tx-params)
+                                new-state  (:state effect-map)
+                                tx-refresh (:refresh effect-map)
+                                effects    (-> effect-map (dissoc :state) (dissoc :refresh))]
                                         ;; Collect refreshes
-                          (swap! refreshes
-                            (fn [r]
-                              (into (or r #{}) tx-refresh)))
+                            (swap! refreshes
+                              (fn [r]
+                                (into (or r #{}) tx-refresh)))
                                         ;; Apply side effects
-                          (doseq [[effect-key effect-data] effects]
-                            (if effect-handler
-                              (effect-handler this effect-key effect-data)
-                              (let [effect-id      (if (set? effect-key) :compound effect-key)
-                                    effect-handler (get effect-handlers effect-id)]
-                                (when-not effect-handler
-                                  (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
-                                (effect-handler this (assoc effect-data
-                                                       :effect-id effect-id
-                                                       :effect-key effect-key)))))
-                          (or new-state st)))
+                            (doseq [[effect-key effect-data] effects]
+                              (if effect-handler
+                                (effect-handler this effect-key effect-data)
+                                (let [effect-id      (if (set? effect-key) :compound effect-key)
+                                      effect-handler (get effect-handlers effect-id)]
+                                  (when-not effect-handler
+                                    (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
+                                  (effect-handler this (assoc effect-data
+                                                         :effect-id effect-id
+                                                         :effect-key effect-key)))))
+                            (or new-state st))))
                 old-state
                 txs)))
                    ;; Execute refreshes
@@ -333,7 +335,7 @@
                                keys
                                (remove (partial = :default)))
         read-dependencies *read-deps*
-        new-config        (merge config
+        new-config        (merge
                             {:tx-queue          (atom [])
                              :pending-schedule  (volatile! nil)
                              :subscribers       (atom {})
@@ -346,7 +348,8 @@
                              :read-dependencies read-dependencies
                              :read-dependents   (-> read-dependencies
                                                     (resolve-dep-map)
-                                                    (dependencies->dependents))})]
+                                                    (dependencies->dependents))}
+                            config)]
     (map->App new-config)))
 
 
