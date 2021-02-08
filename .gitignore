@@ -5,3 +5,4 @@ resources/public/js
 .shadow-cljs
 .clj-kondo
 target/
+.lsp
