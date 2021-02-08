@@ -8,7 +8,6 @@
    [clojure.set :as set]
    [clojure.spec.alpha :as s]
    [clojure.core.async :refer [put! >! chan] :as a]
-   [rum.core :as rum]
    [ghostwheel.core :as g :refer [>defn >defn- >fdef => | <- ?]])
   (:require-macros
    [amo.core]
@@ -211,107 +210,104 @@
     (vreset! pending-schedule (schedule-fn f)))
   p/ITransact
   (p/-transact! [this mutations]
-             ;; schedule! will only run at most once per animation frame
-             ;; this is why we swap into tx-queue so that we can keep track
-             ;; of all the transactions that have happened since then.
-             ;; You could say that schedule! is a like a cargo train that departs 
-             ;; at regular intervals only if there is cargo. This is a useful metaphor,
-             ;; so this is what we'll use to comment this code. 
+    ;; schedule! will only run at most once per animation frame
+    ;; this is why we swap into tx-queue so that we can keep track
+    ;; of all the transactions that have happened since then.
+    ;; You could say that schedule! is a like a cargo train that departs 
+    ;; at regular intervals only if there is cargo. This is a useful metaphor,
+    ;; so this is what we'll use to comment this code. 
 
-             ;; accept cargo in cargo hold
+    ;; accept cargo in cargo hold
     (swap! tx-queue
       (fn [queue]
         (into (or queue []) mutations)))
-             ;; Don't worry about several schedules happening at a time.
-             ;; Each time a new transaction is scheduled, any pending schedules
-             ;; get cancelled, and the new schedule takes on the responsibility
-             ;; of the old one.
+    ;; Don't worry about several schedules happening at a time.
+    ;; Each time a new transaction is scheduled, any pending schedules
+    ;; get cancelled, and the new schedule takes on the responsibility
+    ;; of the old one.
     (p/-schedule! this
       (fn [_]
-                 ;; Train is leaving. `txs` is the collection of cargo that made it
-                 ;; onto the train.
+        ;; Train is leaving. `txs` is the collection of cargo that made it
+        ;; onto the train.
         (let [txs       @tx-queue
-                       ;; cargo has been transfered to train, so now the platform is empty.
-                       ;; Our train metaphor can now end.
+              ;; cargo has been transfered to train, so now the platform is empty.
+              ;; Our train metaphor can now end.
               _         (reset! tx-queue [])
               refreshes (atom #{})]
-                   ;; Update state and apply side effects
-          (swap! state
-            (fn [old-state]
-              (reduce (fn [st [tx-key tx-params :as tx]]
-                        (if-not tx
-                          st
-                          (let [effect-map (mutation-handler st tx-key tx-params)
-                                new-state  (:state effect-map)
-                                tx-refresh (:refresh effect-map)
-                                effects    (-> effect-map (dissoc :state) (dissoc :refresh))]
-                                        ;; Collect refreshes
-                            (swap! refreshes
-                              (fn [r]
-                                (into (or r #{}) tx-refresh)))
-                                        ;; Apply side effects
-                            (doseq [[effect-key effect-data] effects]
-                              (if effect-handler
-                                (effect-handler this effect-key effect-data)
-                                (let [effect-id      (if (set? effect-key) :compound effect-key)
-                                      effect-handler (get effect-handlers effect-id)]
-                                  (when-not effect-handler
-                                    (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
-                                  (effect-handler this (assoc effect-data
-                                                         :effect-id effect-id
-                                                         :effect-key effect-key)))))
-                            (or new-state st))))
-                old-state
-                txs)))
-                   ;; Execute refreshes
-                   ;; Go through all subscribers, see if any of them care about pending refreshes.
+          ;; Update state and apply side effects
+          (doseq [[tx-key tx-params :as tx] txs
+                  :when tx]
+            (let [effect-map (mutation-handler @state tx-key tx-params)
+                  effects    (dissoc effect-map :state :refresh)]
+              ;; Update state
+              (when-let [new-state (:state effect-map)]
+                (swap! state (fn [_old-state] new-state)))
+              ;; Collect refreshes
+              (when-let [tx-refresh (:refresh effect-map)]
+                (swap! refreshes
+                  (fn [r]
+                    (into (or r #{}) tx-refresh))))
+              ;; Apply side effects
+              (doseq [[effect-key effect-data] effects]
+                (if effect-handler
+                  (effect-handler this effect-key effect-data)
+                  (let [effect-id      (if (set? effect-key) :compound effect-key)
+                        effect-handler (get effect-handlers effect-id)]
+                    (when-not effect-handler
+                      (throw (ex-info "No handler for effect found" {:effect-id effect-id})))
+                    (effect-handler this (assoc effect-data
+                                           :effect-id effect-id
+                                           :effect-key effect-key)))))))
+          ;; Execute refreshes
+          ;; Go through all subscribers, see if any of them care about pending refreshes.
           (let [pending-rereads @refreshes
-                         ;; all-read-keys represents all the derived keys
-                         ;; Taken from all the dispatch values of the multimethod `read-handler`,
-                         ;; sans the `:default` dispatch.
+                ;; all-read-keys represents all the derived keys
+                ;; Taken from all the dispatch values of the multimethod `read-handler`,
+                ;; sans the `:default` dispatch.
 
-                         ;; Subscribers also directly specify the set of read-keys
-                         ;; they care about. What we want from this is the root read-keys
-                         ;; and not derived read-keys. Good thing we use a set, so deduping is free.
+                ;; Subscribers also directly specify the set of read-keys
+                ;; they care about. What we want from this is the root read-keys
+                ;; and not derived read-keys. Good thing we use a set, so deduping is free.
                 all-reads (reduce (fn [acc {:subscriber/keys [read-keys]}]
                                     (into acc read-keys))
                             (set all-read-keys)
                             (vals @subscribers))
                 reads-to-execute (if (contains? pending-rereads ::all)
-                                            ;; The moment a mutation wants to refresh everything, we refresh everything.
+                                   ;; The moment a mutation wants to refresh everything, we refresh everything.
                                    all-reads
-                                            ;; Otherwise, flesh out the pending rereads with `read-dependents`
-                                            ;; Which is derived from the dependency map of read-keys.
+                                   ;; Otherwise, flesh out the pending rereads with `read-dependents`
+                                   ;; Which is derived from the dependency map of read-keys.
                                    (reduce (fn [acc read-to-update]
                                              (if-let [dependents (seq (get read-dependents read-to-update))]
                                                (into acc dependents)
                                                acc))
                                      pending-rereads
                                      pending-rereads))
-                         ;; read-values is an atom of the mapping from read-key 
-                         ;; to the result of exeuting the `read-handler`.
-                         ;; read-values will be used by subscribers to access the data they need.
-                         ;; This way, we avoid unnecessary repeat executions of read-handler.
+                ; _ (js/console.log "reads asdf" all-read-keys (map :subscriber/read-keys (vals @subscribers)))
+                ;; read-values is an atom of the mapping from read-key 
+                ;; to the result of exeuting the `read-handler`.
+                ;; read-values will be used by subscribers to access the data they need.
+                ;; This way, we avoid unnecessary repeat executions of read-handler.
 
-                         ;; We deref it now, to get the previous values.
+                ;; We deref it now, to get the previous values.
                 prev-values @read-values
-                         ;; Support both atom and map for read-dependencies
+                ;; Support both atom and map for read-dependencies
                 dep-map    (if (instance? Atom read-dependencies)
                              @read-dependencies
                              read-dependencies)
-                         ;; deref current state since state mutations are done
+                ;; deref current state since state mutations are done
                 state-map @state
-                         ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
-                         ;; that can be used to reset! `read-values`.
+                ;; Given `reads-to-execute`, evaluate `read-handler` to create a map
+                ;; that can be used to reset! `read-values`.
                 new-values (resolve-reads {:state-map    state-map
                                            :dep-map      dep-map
                                            :read-handler read-handler}
                              reads-to-execute)
-                         ;; We merge prev-values and new-values to get the complete map.
+                ;; We merge prev-values and new-values to get the complete map.
                 new-read-values (merge prev-values new-values)]
-                     ;; reset! read-values with this merger.
+            ;; reset! read-values with this merger.
             (reset! read-values new-read-values)
-                     ;; Notify subscribers who care about a read-key inside reads-to-execute to rerender.
+            ;; Notify subscribers who care about a read-key inside reads-to-execute to rerender.
             (doseq [[_ {:subscriber/keys [id read-keys render]}] @subscribers]
               (when (and (seq (set/intersection read-keys reads-to-execute))
                       ;; Still check because race conditions happen
@@ -353,7 +349,7 @@
     (map->App new-config)))
 
 
-(defn rum-state->amo-app
+#_(defn rum-state->amo-app
   [state]
   (->> state
        :rum/args
@@ -361,7 +357,7 @@
        (filter (fn [arg] (contains? arg ::app)))
        first))
 
-(>defn rum-subscribe
+#_(>defn rum-subscribe
   [read-f]
   [(s/or
      :read-keys set?
@@ -537,10 +533,10 @@
                              (dissoc :amo.subscriber/read-keys))))}))
 
 ;; DEPRECATED
-(def subscribe rum-subscribe)
+#_(def subscribe rum-subscribe)
 
 ;; DEPRECATED
-(deftype ReadCursor [app id read-keys meta]
+#_(deftype ReadCursor [app id read-keys meta]
   Object
   (equiv [this other]
     (-equiv this other))
@@ -600,7 +596,7 @@
     (-write writer "]")))
 
 ;; DEPRECATED
-(defn subscribe-reads
+#_(defn subscribe-reads
   ([app read-keys]
     (subscribe-reads app
       {:id        (atom nil)

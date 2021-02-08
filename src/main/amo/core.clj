@@ -9,10 +9,16 @@
 (s/def ::deps ::specs/dependencies)
 
 (s/def ::options
-  (s/keys :req-un [::deps]))
+  (s/keys :opt-un [::deps]))
+
+(s/def ::parametrized-read
+  (s/cat :read-key keyword? :param-key keyword?))
+
+(s/def ::read-dispatch
+  (s/or :simple keyword? :parametrized ::parametrized-read))
 
 (s/def ::defread
-  (s/cat :dispatch-key any?
+  (s/cat :dispatch-key ::read-dispatch
          :options (s/? ::options)
          :args-list vector?
          :body (s/* any?)))
@@ -28,23 +34,20 @@
     (throw (ex-info "Invalid args for defread."
                     {:spec-error
                      (s/explain-data ::defread args)})))
-  (let [{:keys [dispatch-key options args-list body]} (s/conform ::defread args)
+  (let [{:keys [dispatch-key options args-list body]
+         :or {options {:deps #{}}}} (s/conform ::defread args)
         {:keys [deps]} options
-        fq-read-sym 'amo.core/read-handler]
+        fq-read-sym 'amo.core/read-handler
+        dispatch (second dispatch-key)]
     `(do
        ;; Register dependencies of this read
        (set! amo.core/*read-deps*
-         (assoc amo.core/*read-deps* ~dispatch-key 
+         (assoc amo.core/*read-deps* ~dispatch
            ~(into (empty deps)
-                     ;; Have to do this because conform turns s/or into tuples.
+              ;; Have to do this because conform turns s/or into tuples.
               (map second)
               deps)))
-       #_(swap!  assoc ~dispatch-key 
-         ~(into (empty deps)
-                     ;; Have to do this because conform turns s/or into tuples.
-            (map second)
-            deps))
-       (defmethod ~fq-read-sym ~dispatch-key
+       (defmethod ~fq-read-sym ~dispatch
          ~args-list
          ~@body))))
 
@@ -59,3 +62,15 @@
     `(defmethod ~fq-mutate-sym ~dispatch-key
        ~args-list
        ~@body)))
+
+(defn add-subscriber!
+  "No op. Dev experience for cljc only"
+  [& args])
+
+(defn remove-subscriber!
+  "No op. Dev experience for cljc only"
+  [& args])
+
+(defn transact!
+  "No op. Dev experience for cljc only"
+  [& args])
