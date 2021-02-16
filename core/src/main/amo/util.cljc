@@ -1,6 +1,6 @@
 (ns amo.util
-  (:require
-   [amo.util :include-macros true]))
+  (:require-macros
+   [amo.util]))
 
 #?(:clj
    (defmacro time-label
