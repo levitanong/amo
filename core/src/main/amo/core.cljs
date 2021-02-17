@@ -45,45 +45,6 @@
     :opt-un
     [::effect-handlers]))
 
-;; For record purposes
-;; Still slower than current implementation, but nice to see anyway.
-#_(time-label
-    "tail recursion"
-    (loop [[read-to-execute & remaining-reads :as reads-to-execute] (vec reads-to-execute)
-           results                                                  {}]
-      (cond
-       ;; nothing more to evaluate.
-        (nil? read-to-execute) results
-       ;; read-to-execute already had a value.
-       ;; ;; Likely because a dependent already calculated this.
-        (contains? results read-to-execute) (recur remaining-reads results)
-       ;; Not found in results, so need to evaluate.
-        :else (let [;; get the deps of this read-to-execute
-                    deps            (get dep-map read-to-execute)
-                   ;; Finding deps that don't have an entry in results
-                   ;; ;; We use vector operations instead of set
-                   ;; ;; because we need `into` to be predictable and ordered.
-                    unresolved-deps (filterv (fn [dep]
-                                               (not
-                                                 (contains? results dep)))
-                                      deps)]
-                (if (seq unresolved-deps)
-                 ;; merge unresolved-deps with reads-to-execute because 
-                 ;; we want `read-to-execute` in the queue again.
-                 ;; unresolved-deps should be evaluated first.
-                  (recur (into unresolved-deps reads-to-execute) results)
-                 ;; All deps have already have been resolve
-                 ;; i.e. have entries in `results`.
-                 ;; Can now evaluate a new result using `read-handler`,
-                 ;; passing the deps subset of results.
-                  (let [new-result (read-handler state-map read-to-execute
-                                     (select-keys results deps))]
-                   ;; Look at all the other read keys.
-                   ;; ;; Add new result to `results`.
-                    (recur remaining-reads
-                      (merge results
-                        {read-to-execute new-result}))))))))
-
 (defmulti mutation-handler (fn [_state event _params] event))
 (defmulti read-handler (fn [_state read-key _params] read-key))
 

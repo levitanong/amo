@@ -17,4 +17,4 @@
     (let [maybe-tx-chan (handler app effect-id effect-data)]
       (if (and maybe-tx-chan (satisfies? ReadPort maybe-tx-chan))
         (go (handle-chan app effect-id effect-data (<! maybe-tx-chan)))
-        maybe-tx-chan))))
+        (handle-chan app effect-id effect-data maybe-tx-chan)))))
