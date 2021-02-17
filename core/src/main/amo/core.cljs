@@ -8,7 +8,6 @@
    [clojure.set :as set]
    [clojure.spec.alpha :as s]
    [clojure.core.async :refer [put! >! chan] :as a]
-   [rum.core :as rum]
    [ghostwheel.core :as g :refer [>defn >defn- >fdef => | <- ?]])
   (:require-macros
    [amo.core]
