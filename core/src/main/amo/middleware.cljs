@@ -4,17 +4,17 @@
 
 (defn wrap-map-handler
   [handler handler-map]
-  (fn [{:keys [app]} effect-id effect-data]
+  (fn [env effect-id effect-data]
     (if-let [map-handler (get handler-map effect-id)]
-      (map-handler app effect-id effect-data)
-      (handler app effect-id effect-data))))
+      (map-handler env effect-id effect-data)
+      (handler env effect-id effect-data))))
 
 (defn wrap-async
   "If the output of handler is a channel, take from it.
     Regardless, pass this value to handle-chan"
   [handler handle-chan]
-  (fn [{:keys [app]} effect-id effect-data]
-    (let [maybe-tx-chan (handler app effect-id effect-data)]
+  (fn [env effect-id effect-data]
+    (let [maybe-tx-chan (handler env effect-id effect-data)]
       (if (and maybe-tx-chan (satisfies? ReadPort maybe-tx-chan))
-        (go (handle-chan app effect-id effect-data (<! maybe-tx-chan)))
-        (handle-chan app effect-id effect-data maybe-tx-chan)))))
+        (go (handle-chan env effect-id effect-data (<! maybe-tx-chan)))
+        (handle-chan env effect-id effect-data maybe-tx-chan)))))
