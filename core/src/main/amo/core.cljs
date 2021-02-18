@@ -8,11 +8,7 @@
    [clojure.set :as set]
    [clojure.spec.alpha :as s]
    [clojure.core.async :refer [put! >! chan] :as a]
-   [ghostwheel.core :as g :refer [>defn >defn- >fdef => | <- ?]])
-  (:require-macros
-   [amo.core]
-   [clojure.core.async :refer [go]]
-   [amo.util :refer [time-label]]))
+   [ghostwheel.core :as g :refer [>defn >defn- >fdef => | <- ?]]))
 
 (s/def ::deref-key keyword?)
 (s/def ::ref-key keyword?)
@@ -96,7 +92,7 @@
       stores)))
 
 (defn default-effect-handler
-  [app effect-key effect-data]
+  [{:keys [app]} effect-key effect-data]
   (case effect-key
     :state (let [state (get-in app [:stores :state :ref])
                  new-state effect-data]
@@ -175,8 +171,10 @@
                   effect-ids (sort-by prioritize-stores (keys effects))]
               ;; Apply side effects
               (doseq [effect-id effect-ids]
-                (let [effect-data (get effects effect-id)]
-                  (effect-handler this effect-id effect-data)))))
+                (let [effect-data (get effects effect-id)
+                      env {:app this
+                           :tx tx}]
+                  (effect-handler env effect-id effect-data)))))
           ;; Execute refreshes
           ;; Go through all subscribers, see if any of them care about pending refreshes.
           (let [pending-rereads @refreshes

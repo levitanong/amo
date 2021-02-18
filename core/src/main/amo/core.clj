@@ -1,17 +1,13 @@
-(ns amo.core
-  (:require
-   [clojure.spec.alpha :as s]
-   [amo.specs :as specs]
-   [amo.protocols :as p]))
+(ns amo.core)
 
 (defn add-subscriber!
   "No op. Dev experience for cljc only"
-  [& args])
+  [& _args])
 
 (defn remove-subscriber!
   "No op. Dev experience for cljc only"
-  [& args])
+  [& _args])
 
 (defn transact!
   "No op. Dev experience for cljc only"
-  [& args])
+  [& _args])
