@@ -3,8 +3,13 @@
 ## Installation
 In your deps
 ```clj
-levitanong/amo {:git/url "https://github.com/levitanong/amo.git"
-                :sha     "323536114e29ff5130b121430734e9f0f505aef6"}
+levitanong/amo.core {:git/url "https://github.com/levitanong/amo.git"
+                     :deps/root "core"
+                     :sha "bafad5dbb4933024e91009a1dc349747726d850b"}
+;; Optionally use a preset subscribe! implementation
+levitanong/amo.hooks {:git/url "https://github.com/levitanong/amo.git"
+                      :deps/root "hooks"
+                      :sha "bafad5dbb4933024e91009a1dc349747726d850b"}
 ```
 Replace the value of :sha with the current hash.
 
@@ -19,21 +24,21 @@ of most of Amo's features.
 
 ;; Simplest read-handler. 
 ;; Will attempt to get the value of `read-key` straight from state-map
-;; Ignore dep-map for now. It will be explained later
+;; Ignore params for now. It will be explained later.
 (defmethod read-handler :default
-  [state-map read-key dep-map]
-  (get state-map read-key))
+  [{:keys [state]} read-key params]
+  (get state read-key))
 
-(defmulti mut-handler (fn [event _ _] event))
+(defmulti mut-handler (fn [_ event _] event))
 
 ;; Just increment some field in state.
 ;; We make it a path instead of a keyword because it's more flexible.
 (defmethod mut-handler :inc
-  [event {:keys [field-path]} state-map]
-  (update-in state-map field-path inc))
+  [{:keys [state]} _event {:keys [field-path]}]
+  (update-in state field-path inc))
 
 (defn fake-http
-  [app effect]
+  [{:keys [app]} effect-id effect]
   (js/setTimeout 
     (fn [e]
       (amo/transact! app [[:merge-foo {:foo 0}]]))
@@ -41,17 +46,7 @@ of most of Amo's features.
 
 (def app
   (amo/new-app
-    {:state (atom {:foo 0})
+    {:stores {:state (atom {:foo 0})}
      :read-handler read-handler
      :mutation-handler mut-handler}))
-
-;; RUM SPECIFIC
-(require '[rum.core :as rum])
-
-(rum/defc Root
-  < (amo/rum-subscribe #{:foo})
-  [app {:keys [foo]}]
-  [:div "foo: " foo])
-
-(rum/mount (Root app) (. js/document (getElementById "app")))
 ```
