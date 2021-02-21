@@ -48,7 +48,7 @@
   [_ _ read-keys]
   {:refresh read-keys})
 
-(defn resolve-reads
+(defn- resolve-reads
   ([env reads] (resolve-reads env reads {}))
   ([{:keys [derefed-stores read-handler] :as env} [read-to-execute & reads-pending-execution] results]
     (cond
@@ -78,7 +78,7 @@
                 ;; "the value of this read for this param."
                 (assoc results read-to-execute result))))))
 
-(defn deref-stores
+(defn- deref-stores
   "Assuming all the stores in :stores are atom-like, 
     simply create a new map with all the derefed values as values."
   [stores]
