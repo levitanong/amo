@@ -231,6 +231,16 @@
 (defn remove-subscriber! [app id] (p/-remove-subscriber! app id))
 (defn amo-app? [app] (satisfies? p/AmoApp app))
 
+(defn default-schedule-fn
+  [f]
+  (if (.-hidden js/document)
+    (f)
+    (js/requestAnimationFrame f)))
+
+(defn default-release-fn
+  [id]
+  (js/cancelAnimationFrame id))
+
 (defn new-app
   [config]
   (when-not (s/valid? ::app-user-config config)
@@ -245,8 +255,8 @@
                              :pending-schedule  (volatile! nil)
                              :subscribers       (atom {})
                              :refreshes         (atom #{})
-                             :schedule-fn       js/requestAnimationFrame
-                             :release-fn        js/cancelAnimationFrame
+                             :schedule-fn       default-schedule-fn
+                             :release-fn        default-release-fn
                              :all-read-keys     all-read-keys
                              :mutation-handler  mutation-handler
                              :read-values       (atom {})
