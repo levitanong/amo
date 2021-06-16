@@ -50,7 +50,7 @@
 
 (defn- resolve-reads
   ([env reads] (resolve-reads env reads {}))
-  ([{:keys [derefed-stores read-handler] :as env} [read-to-execute & reads-pending-execution] results]
+  ([{:keys [derefed-stores read-handler extra-env] :as env} [read-to-execute & reads-pending-execution] results]
     (cond
     ;; nothing more to evaluate.
       (nil? read-to-execute) results
@@ -67,7 +67,7 @@
                 ;; HOWEVER, the read cache (or read-values) is keyed on the read as a whole
                 ;; because it's a cache of values.
                 ;; resolve those deps.
-                  result                 (read-handler derefed-stores
+                  result                 (read-handler (merge extra-env derefed-stores)
                                            read-key
                                            read-params)]
               (resolve-reads env
@@ -114,7 +114,7 @@
    schedule-fn release-fn
    read-values all-read-keys
    mutation-handler read-handler effect-handlers effect-handler
-   refreshes]
+   refreshes extra-env]
   p/AmoApp
   (p/-amo-app? [this] true)
   p/IPublisher
@@ -167,7 +167,7 @@
           ;; Apply side effects including store mutations
           (doseq [[tx-key tx-params :as tx] txs
                   :when tx]
-            (let [effects (mutation-handler (deref-stores stores) tx-key tx-params)
+            (let [effects (mutation-handler (merge extra-env (deref-stores stores)) tx-key tx-params)
                   effect-ids (sort-by prioritize-stores (keys effects))]
               ;; Apply side effects
               (doseq [effect-id effect-ids]
@@ -211,7 +211,8 @@
                 ;; that can be used to reset! `read-values`.
                 derefed-stores (deref-stores stores)
                 new-values (resolve-reads {:derefed-stores derefed-stores
-                                           :read-handler read-handler}
+                                           :read-handler read-handler
+                                           :extra-env extra-env}
                              reads-to-execute)
                 ;; We merge prev-values and new-values to get the complete map.
                 new-read-values (merge prev-values new-values)]
