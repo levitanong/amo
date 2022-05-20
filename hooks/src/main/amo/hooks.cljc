@@ -3,7 +3,6 @@
    [amo.core :as amo]
    [amo.util]
    [uix.core.alpha :as uix]
-   [tick.alpha.api :as t]
    [clojure.set :as set]))
 
 (defn subscribe!
